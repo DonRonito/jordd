@@ -1,0 +1,25 @@
+{
+  "name": "Jordd",
+  "short_name": "Jordd",
+  "description": "En enkel PWA-launcher for Home Assistant.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071512",
+  "theme_color": "#102a26",
+  "lang": "no",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

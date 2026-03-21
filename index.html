@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Jordd er en lokal PWA for Zigbee-enheter, historikk og HomeKit-deling over Home Assistant."
+    />
+    <meta name="theme-color" content="#102a26" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Jordd</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Jordd</p>
+          <h1 id="pageTitle">Lokal Zigbee-app over Home Assistant</h1>
+        </div>
+        <div class="topbar-actions">
+          <button id="installButton" class="secondary-button" type="button" hidden>
+            Installer
+          </button>
+          <button id="settingsButton" class="icon-button" type="button" aria-label="Innstillinger">
+            <span aria-hidden="true">⚙</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section id="appMessage" class="inline-feedback global-message" hidden></section>
+        <section id="onboardingView" class="panel view" hidden></section>
+        <section id="dashboardView" class="panel view" hidden></section>
+        <section id="deviceView" class="panel view" hidden></section>
+        <section id="settingsView" class="panel view" hidden></section>
+      </main>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
