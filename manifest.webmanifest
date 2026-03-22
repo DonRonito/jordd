@@ -1,12 +1,12 @@
 {
   "name": "Jordd",
   "short_name": "Jordd",
-  "description": "En enkel PWA-launcher for Home Assistant.",
+  "description": "En PWA for batteridrevne ESP32-sensorer som kobles direkte til jordd.com.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#071512",
-  "theme_color": "#102a26",
+  "background_color": "#061016",
+  "theme_color": "#11353e",
   "lang": "no",
   "icons": [
     {

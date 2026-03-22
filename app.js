@@ -1,48 +1,41 @@
 const API_BASE = "/api";
-const HISTORY_RANGE_OPTIONS = ["24h", "7d", "30d"];
 
 const state = {
   installPromptEvent: null,
-  config: null,
-  configLoading: true,
-  bootstrapLoading: true,
-  savingConfig: false,
-  statusLoading: false,
-  devicesLoading: false,
-  permitJoinBusy: false,
-  renameBusy: false,
-  homekitBusy: false,
-  historyLoading: false,
-  systemStatus: null,
-  devices: [],
-  selectedDeviceId: "",
-  historyRange: "24h",
-  history: null,
+  sessionLoading: true,
+  authBusy: false,
+  session: null,
+  dashboardLoading: false,
+  dashboard: null,
+  accountLoading: false,
+  account: null,
+  accountSaving: false,
+  passwordSaving: false,
+  claimCodeBusy: false,
+  pollTimer: null,
   message: "",
   messageKind: "info",
-  pollTimer: null,
+  authMode: "login",
 };
 
 const elements = {
   pageTitle: document.querySelector("#pageTitle"),
   installButton: document.querySelector("#installButton"),
-  settingsButton: document.querySelector("#settingsButton"),
+  primaryNav: document.querySelector("#primaryNav"),
+  topbarActions: document.querySelector(".topbar-actions"),
   appMessage: document.querySelector("#appMessage"),
-  onboardingView: document.querySelector("#onboardingView"),
-  dashboardView: document.querySelector("#dashboardView"),
-  deviceView: document.querySelector("#deviceView"),
-  settingsView: document.querySelector("#settingsView"),
+  appView: document.querySelector("#appView"),
 };
 
 init();
 
 async function init() {
   registerServiceWorker();
-  bindGlobalEvents();
+  bindEvents();
   await bootstrap();
 }
 
-function bindGlobalEvents() {
+function bindEvents() {
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
     state.installPromptEvent = event;
@@ -55,11 +48,8 @@ function bindGlobalEvents() {
   });
 
   window.addEventListener("hashchange", async () => {
-    syncSelectedDeviceFromRoute();
     render();
-    if (getRoute().kind === "device") {
-      await loadHistoryForSelectedDevice();
-    }
+    await loadRouteData({ silent: true });
   });
 
   document.addEventListener("visibilitychange", () => {
@@ -67,108 +57,161 @@ function bindGlobalEvents() {
       stopPolling();
       return;
     }
-
-    if (state.config?.configured) {
-      startPolling();
-    }
+    syncPolling();
   });
 
-  elements.settingsButton.addEventListener("click", () => {
-    if (location.hash === "#settings") {
-      navigateTo("");
+  elements.primaryNav.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-route]");
+    if (!button) {
       return;
     }
-
-    navigateTo("#settings");
+    navigateTo(button.dataset.route);
   });
 }
 
 async function bootstrap() {
-  state.bootstrapLoading = true;
-  state.configLoading = true;
+  state.sessionLoading = true;
   render();
 
   try {
-    state.config = await apiGet("/config");
-    syncSelectedDeviceFromRoute();
-
-    if (state.config.configured) {
-      await Promise.all([loadStatus(), loadDevices()]);
-      if (getRoute().kind === "device") {
-        await loadHistoryForSelectedDevice();
+    const response = await apiGet("/auth/session");
+    state.session = response.user || null;
+    if (state.session) {
+      if (!location.hash) {
+        navigateTo("dashboard", { replace: true });
       }
-      startPolling();
-    } else {
-      stopPolling();
+      await loadRouteData({ silent: true });
     }
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
-    state.configLoading = false;
-    state.bootstrapLoading = false;
+    state.sessionLoading = false;
+    syncPolling();
     render();
   }
 }
 
-function render() {
-  renderHeaderButtons();
-  renderGlobalMessage();
+function getRoute() {
+  const hash = location.hash.replace(/^#/, "");
+  if (!hash) {
+    return state.session ? "dashboard" : "landing";
+  }
+  if (["dashboard", "add-sensor", "account"].includes(hash)) {
+    return hash;
+  }
+  return state.session ? "dashboard" : "landing";
+}
+
+function navigateTo(route, options = {}) {
+  const nextHash = route ? `#${route}` : "";
+  if (options.replace) {
+    history.replaceState(null, "", `${location.pathname}${location.search}${nextHash}`);
+  } else {
+    location.hash = nextHash;
+  }
+  render();
+  syncPolling();
+}
+
+async function loadRouteData(options = {}) {
+  if (!state.session) {
+    return;
+  }
 
   const route = getRoute();
-  const isConfigured = Boolean(state.config?.configured);
+  if (route === "dashboard" || route === "add-sensor") {
+    await loadDashboard(options);
+  }
+  if (route === "account") {
+    await loadAccount(options);
+  }
+}
 
-  elements.onboardingView.hidden = true;
-  elements.dashboardView.hidden = true;
-  elements.deviceView.hidden = true;
-  elements.settingsView.hidden = true;
+function syncPolling() {
+  stopPolling();
+  if (!state.session || document.hidden) {
+    return;
+  }
+  if (!["dashboard", "add-sensor"].includes(getRoute())) {
+    return;
+  }
 
-  if (state.configLoading || state.bootstrapLoading) {
+  state.pollTimer = window.setInterval(async () => {
+    await loadDashboard({ silent: true });
+  }, 15000);
+}
+
+function stopPolling() {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+function render() {
+  renderHeader();
+  renderMessage();
+
+  if (state.sessionLoading) {
     elements.pageTitle.textContent = "Starter Jordd";
-    elements.onboardingView.hidden = false;
-    elements.onboardingView.innerHTML = `
+    elements.appView.innerHTML = `
       <section class="stack">
         <div class="hero-card">
           <p class="eyebrow">Starter</p>
-          <h2>Laster lokal gateway…</h2>
-          <p class="muted">Jordd leser lokal konfigurasjon og forbereder Zigbee-oversikten.</p>
+          <h2>Laster skyplattformen…</h2>
+          <p class="muted">Jordd gjør klart konto, sensorer og onboardingflyt.</p>
         </div>
       </section>
     `;
     return;
   }
 
-  if (!isConfigured) {
-    elements.pageTitle.textContent = "Onboarding";
-    elements.onboardingView.hidden = false;
-    renderOnboardingView();
+  if (!state.session) {
+    elements.pageTitle.textContent = "ESP32-sensorer direkte til jordd.com";
+    renderLanding();
     return;
   }
 
-  if (route.kind === "settings") {
-    elements.pageTitle.textContent = "Innstillinger";
-    elements.settingsView.hidden = false;
-    renderSettingsView();
+  const route = getRoute();
+  if (route === "account") {
+    elements.pageTitle.textContent = "Konto";
+    renderAccount();
     return;
   }
 
-  if (route.kind === "device" && getSelectedDevice()) {
-    elements.pageTitle.textContent = getSelectedDevice().friendlyName;
-    elements.deviceView.hidden = false;
-    renderDeviceView();
+  if (route === "add-sensor") {
+    elements.pageTitle.textContent = "Legg til sensor";
+    renderAddSensor();
     return;
   }
 
-  elements.pageTitle.textContent = "Enheter";
-  elements.dashboardView.hidden = false;
-  renderDashboardView();
+  elements.pageTitle.textContent = "Sensorer";
+  renderDashboard();
 }
 
-function renderHeaderButtons() {
-  elements.installButton.hidden = !state.installPromptEvent || isStandalone();
+function renderHeader() {
+  const authenticated = Boolean(state.session);
+  const showInstallButton = Boolean(state.installPromptEvent) && !isStandalone();
+
+  elements.topbarActions.hidden = !authenticated && !showInstallButton;
+  elements.installButton.hidden = !showInstallButton;
   elements.installButton.onclick = state.installPromptEvent ? triggerInstallPrompt : null;
+
+  if (authenticated) {
+    const currentRoute = getRoute();
+    elements.primaryNav.hidden = false;
+    elements.primaryNav.innerHTML = `
+      <button data-route="dashboard" class="ghost-button" data-active="${String(currentRoute === "dashboard")}" type="button">Sensorer</button>
+      <button data-route="add-sensor" class="ghost-button" data-active="${String(currentRoute === "add-sensor")}" type="button">Legg til</button>
+      <button data-route="account" class="ghost-button" data-active="${String(currentRoute === "account")}" type="button">Konto</button>
+    `;
+  } else {
+    elements.primaryNav.hidden = true;
+    elements.primaryNav.innerHTML = "";
+  }
 }
 
-function renderGlobalMessage() {
+function renderMessage() {
   if (!state.message) {
     elements.appMessage.hidden = true;
     elements.appMessage.textContent = "";
@@ -181,633 +224,485 @@ function renderGlobalMessage() {
   elements.appMessage.className = `inline-feedback global-message ${state.messageKind}`;
 }
 
-function renderOnboardingView() {
-  const config = state.config || {};
-  const instructions = getInstallInstructions();
+function renderLanding() {
+  const install = getInstallInstructions();
+  const loginActive = state.authMode === "login";
 
-  elements.onboardingView.innerHTML = `
+  elements.appView.innerHTML = `
     <section class="stack">
-      <div class="hero-card">
-        <p class="eyebrow">Lokal App</p>
-        <h2>Koble Jordd til Home Assistant og Zigbee2MQTT</h2>
-        <p class="muted">${escapeHtml(instructions.lead)}</p>
+      <div class="hero-card compact-stack">
+        <p class="eyebrow">Kom I Gang</p>
+        <h2>Logg inn og legg til ESP32-sensorer med claim code</h2>
+        <p class="muted">
+          Jordd kobler batteridrevne sensorer direkte til kontoen din. Sensoren settes opp via sitt eget Wi-Fi,
+          får hjemmenett og claim code, og sender deretter målinger til jordd.com.
+        </p>
+        <ul class="helper-list">
+          <li>Opprett konto eller logg inn.</li>
+          <li>Generer claim code i appen.</li>
+          <li>Koble telefonen til sensorens setup-Wi-Fi og fyll inn kode + Wi-Fi-passord.</li>
+        </ul>
+        <p class="muted"><strong>Demo:</strong> brukernavn <code>test</code> og passord <code>test</code>.</p>
+        <p class="muted">${escapeHtml(install.lead)}</p>
         <div class="button-row">
-          ${state.installPromptEvent ? '<button id="promptInstallButton" class="primary-button" type="button">Installer nå</button>' : ""}
-          <button id="skipInstallButton" class="ghost-button" type="button">Fortsett uten installasjon</button>
+          ${state.installPromptEvent ? '<button id="landingInstallButton" class="primary-button" type="button">Installer PWA</button>' : ""}
+          <button id="showRegisterButton" class="secondary-button" type="button">Opprett konto</button>
         </div>
       </div>
 
-      <div class="grid two-up">
+      <section class="auth-shell">
         <article class="card">
-          <p class="eyebrow">Installering</p>
-          <h3>PWA først, gateway etterpå</h3>
-          <ol class="steps">
-            ${instructions.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
-          </ol>
-        </article>
+          <div class="split-head">
+            <div>
+              <p class="eyebrow">Autentisering</p>
+              <h3>${loginActive ? "Logg inn" : "Opprett konto"}</h3>
+            </div>
+            <div class="tab-row">
+              <button id="loginTabButton" class="${loginActive ? "tab-button active" : "tab-button"}" type="button">Login</button>
+              <button id="registerTabButton" class="${!loginActive ? "tab-button active" : "tab-button"}" type="button">Register</button>
+            </div>
+          </div>
 
-        <article class="card">
-          <p class="eyebrow">V1 Stack</p>
-          <h3>Forventet lokal oppsett</h3>
-          <ul class="helper-list">
-            <li>Home Assistant med long-lived access token</li>
-            <li>Zigbee2MQTT koblet til lokal MQTT-broker</li>
-            <li>Jordd gateway kjører på samme lokale origin som PWA-en</li>
-            <li>HomeKit Bridge valgfritt via Home Assistant service-hook</li>
-          </ul>
+          <form id="${loginActive ? "loginForm" : "registerForm"}" class="stack">
+            ${loginActive ? renderLoginFields() : renderRegisterFields()}
+            <button class="primary-button" type="submit">${state.authBusy ? "Jobber…" : loginActive ? "Logg inn" : "Opprett konto"}</button>
+          </form>
+        </article>
+      </section>
+    </section>
+  `;
+
+  const installButton = elements.appView.querySelector("#landingInstallButton");
+  if (installButton) {
+    installButton.addEventListener("click", triggerInstallPrompt);
+  }
+  elements.appView.querySelector("#showRegisterButton").addEventListener("click", () => {
+    state.authMode = "register";
+    render();
+  });
+  elements.appView.querySelector("#loginTabButton").addEventListener("click", () => {
+    state.authMode = "login";
+    render();
+  });
+  elements.appView.querySelector("#registerTabButton").addEventListener("click", () => {
+    state.authMode = "register";
+    render();
+  });
+
+  const loginForm = elements.appView.querySelector("#loginForm");
+  const registerForm = elements.appView.querySelector("#registerForm");
+  if (loginForm) {
+    loginForm.addEventListener("submit", handleLogin);
+  }
+  if (registerForm) {
+    registerForm.addEventListener("submit", handleRegister);
+  }
+}
+
+function renderLoginFields() {
+  return `
+    <label class="field">
+      <span>E-post eller brukernavn</span>
+      <input name="email" type="text" autocomplete="username" required />
+    </label>
+    <label class="field">
+      <span>Passord</span>
+      <input name="password" type="password" autocomplete="current-password" required />
+    </label>
+  `;
+}
+
+function renderRegisterFields() {
+  return `
+    <label class="field">
+      <span>Navn</span>
+      <input name="displayName" type="text" autocomplete="name" required />
+    </label>
+    <label class="field">
+      <span>E-post</span>
+      <input name="email" type="email" autocomplete="email" required />
+    </label>
+    <label class="field">
+      <span>Passord</span>
+      <input name="password" type="password" autocomplete="new-password" minlength="8" required />
+    </label>
+  `;
+}
+
+function renderDashboard() {
+  const dashboard = state.dashboard || { items: [] };
+  const count = dashboard.items?.length || 0;
+
+  elements.appView.innerHTML = `
+    <section class="stack">
+      <div class="hero-card hero-grid">
+        <div class="compact-stack">
+          <p class="eyebrow">Dashboard</p>
+          <h2>${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen din` : "Ingen sensorer enda"}</h2>
+          <p class="muted">
+            Sensorene dine sender siste temperatur, luftfuktighet og batteristatus direkte til Jordd.
+          </p>
+          <div class="button-row">
+            <button id="dashboardRefreshButton" class="primary-button" type="button">${state.dashboardLoading ? "Oppdaterer…" : "Oppdater nå"}</button>
+            <button id="dashboardAddSensorButton" class="secondary-button" type="button">Legg til sensor</button>
+          </div>
+        </div>
+
+        <article class="card compact-stack">
+          <p class="eyebrow">Konto</p>
+          <h3>${escapeHtml(state.session.displayName)}</h3>
+          <p class="muted">${escapeHtml(state.session.email)}</p>
+          <p class="muted">Sensorer blir markert offline når de ikke har sendt data på over to rapporteringsintervaller.</p>
         </article>
       </div>
 
       <article class="card">
-        <p class="eyebrow">Gateway Setup</p>
-        <h3>Legg inn lokal stack én gang</h3>
-        <form id="onboardingForm" class="stack">
-          ${renderGatewayFields(config, { onboarding: true })}
-          <div class="button-row">
-            <button class="primary-button" type="submit">${state.savingConfig ? "Lagrer…" : "Lagre og koble til"}</button>
+        <div class="split-head">
+          <div>
+            <p class="eyebrow">Sensorer</p>
+            <h3>Latest reading cards</h3>
           </div>
-        </form>
+          <span class="muted">${state.dashboardLoading ? "Laster…" : "Direkte fra Jordd backend"}</span>
+        </div>
+        <div class="device-grid">
+          ${count ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
+        </div>
       </article>
     </section>
   `;
 
-  const promptInstallButton = elements.onboardingView.querySelector("#promptInstallButton");
-  const skipInstallButton = elements.onboardingView.querySelector("#skipInstallButton");
-  const onboardingForm = elements.onboardingView.querySelector("#onboardingForm");
-
-  if (promptInstallButton) {
-    promptInstallButton.addEventListener("click", triggerInstallPrompt);
-  }
-
-  skipInstallButton.addEventListener("click", () => {
-    setMessage("Du kan installere appen senere fra nettleseren.", "info");
-    render();
+  elements.appView.querySelector("#dashboardRefreshButton").addEventListener("click", async () => {
+    await loadDashboard({ successMessage: "Dashboard oppdatert." });
   });
-
-  onboardingForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await submitConfigForm(onboardingForm, { reload: true });
-  });
+  elements.appView.querySelector("#dashboardAddSensorButton").addEventListener("click", () => navigateTo("add-sensor"));
 }
 
-function renderDashboardView() {
-  const status = state.systemStatus || {};
+function renderEmptySensors() {
+  return `
+    <article class="empty-state">
+      <strong>Ingen sensorer er koblet til enda.</strong>
+      <p class="muted">Gå til «Legg til» for å generere en claim code og onboarde den første ESP32-sensoren din.</p>
+    </article>
+  `;
+}
 
-  elements.dashboardView.innerHTML = `
-    <section class="stack">
-      <div class="hero-card">
-        <p class="eyebrow">Oversikt</p>
-        <h2>Zigbee-enheter, historikk og HomeKit</h2>
-        <p class="muted">
-          Jordd samler Zigbee2MQTT og Home Assistant på ett sted. Bruk permit join for å legge til nye enheter,
-          åpne en enhet for historikk, og velg om den skal deles videre til HomeKit.
-        </p>
-        <div class="button-row">
-          <button id="permitJoinButton" class="primary-button" type="button">
-            ${state.permitJoinBusy ? "Åpner pairing…" : "Legg til Zigbee-enhet"}
-          </button>
-          <button id="refreshButton" class="secondary-button" type="button">
-            ${state.devicesLoading || state.statusLoading ? "Oppdaterer…" : "Oppdater nå"}
-          </button>
+function renderSensorCard(sensor) {
+  const reading = sensor.latestReading || {};
+  return `
+    <article class="device-card">
+      <div class="split-head">
+        <div>
+          <strong>${escapeHtml(sensor.name)}</strong>
+          <p class="muted">${escapeHtml(sensor.deviceUid)}</p>
+        </div>
+        <span class="availability ${sensor.online ? "online" : "offline"}">${escapeHtml(sensor.online ? "Online" : "Offline")}</span>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric">
+          <span class="metric-label">Temperatur</span>
+          <strong>${formatTemperature(reading.temperatureC)}</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Fukt</span>
+          <strong>${formatHumidity(reading.humidityPct)}</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Batteri</span>
+          <strong>${formatBattery(reading)}</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Sist sett</span>
+          <strong>${formatRelativeTime(sensor.lastSeenAt)}</strong>
         </div>
       </div>
 
-      <section class="status-grid">
-        ${renderStatusCard("Home Assistant", status.homeAssistant)}
-        ${renderStatusCard("MQTT", status.mqtt)}
-        ${renderStatusCard("Zigbee2MQTT", status.zigbee2mqtt)}
-        ${renderStatusCard("HomeKit", status.homekit)}
+      <p class="muted">Firmware ${escapeHtml(sensor.firmwareVersion || "ukjent")} · rapporterer hvert ${escapeHtml(String(sensor.uploadIntervalMinutes || 60))}. minutt</p>
+    </article>
+  `;
+}
+
+function renderAddSensor() {
+  const dashboard = state.dashboard || { items: [], activeClaimCode: null };
+  const claimCode = dashboard.activeClaimCode;
+
+  elements.appView.innerHTML = `
+    <section class="stack">
+      <div class="hero-card">
+        <p class="eyebrow">Onboarding</p>
+        <h2>Legg en ESP32-sensor til kontoen din</h2>
+        <p class="muted">
+          Generer en engangs claim code, ta skjermbilde av den, og koble deg deretter til sensorens setup-Wi-Fi for å legge inn hjemmenett og code.
+        </p>
+        <div class="button-row">
+          <button id="createClaimCodeButton" class="primary-button" type="button">${state.claimCodeBusy ? "Lager code…" : claimCode ? "Lag ny claim code" : "Generer claim code"}</button>
+          <button id="refreshSensorsButton" class="secondary-button" type="button">${state.dashboardLoading ? "Oppdaterer…" : "Sjekk etter ny sensor"}</button>
+        </div>
+      </div>
+
+      <section class="grid two-up">
+        <article class="card compact-stack">
+          <p class="eyebrow">Aktiv Claim Code</p>
+          ${
+            claimCode
+              ? `
+                <div class="claim-code-card">
+                  <span class="claim-code">${escapeHtml(claimCode.code)}</span>
+                  <p class="muted">Utløper ${escapeHtml(formatDateTime(claimCode.expiresAt))}</p>
+                </div>
+                <p class="muted">Ta skjermbilde før du bytter Wi-Fi på telefonen.</p>
+              `
+              : `
+                <p class="muted">Ingen aktiv code akkurat nå. Generer en ny når du er klar til å onboarde en sensor.</p>
+              `
+          }
+        </article>
+
+        <article class="card">
+          <p class="eyebrow">Steg For Steg</p>
+          <ol class="steps">
+            <li>Trykk «Generer claim code» i Jordd.</li>
+            <li>Ta skjermbilde av koden.</li>
+            <li>Skru på sensoren og koble telefonen til dens setup-Wi-Fi.</li>
+            <li>Åpne portal-siden på sensoren, skriv inn hjemmets Wi-Fi-passord og claim code.</li>
+            <li>Bytt tilbake til internett og trykk «Sjekk etter ny sensor».</li>
+          </ol>
+        </article>
       </section>
 
       <article class="card">
         <div class="split-head">
           <div>
-            <p class="eyebrow">Enheter</p>
-            <h3>${state.devices.length} registrerte Zigbee-enheter</h3>
+            <p class="eyebrow">Sensorer På Kontoen</p>
+            <h3>${dashboard.items?.length || 0} registrert</h3>
           </div>
-          <span class="muted">${state.devicesLoading ? "Laster…" : "Oppdatert fra lokal gateway"}</span>
+          <button id="backToDashboardButton" class="ghost-button" type="button">Til oversikten</button>
         </div>
         <div class="device-grid">
-          ${state.devices.length ? state.devices.map(renderDeviceCard).join("") : '<p class="muted">Fant ingen Zigbee-enheter ennå. Start permit join for å legge til en ny.</p>'}
+          ${dashboard.items?.length ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
         </div>
       </article>
     </section>
   `;
 
-  elements.dashboardView.querySelector("#permitJoinButton").addEventListener("click", handlePermitJoin);
-  elements.dashboardView.querySelector("#refreshButton").addEventListener("click", async () => {
-    await Promise.all([loadStatus(true), loadDevices(true)]);
+  elements.appView.querySelector("#createClaimCodeButton").addEventListener("click", createClaimCode);
+  elements.appView.querySelector("#refreshSensorsButton").addEventListener("click", async () => {
+    await loadDashboard({ successMessage: "Sensorlisten er oppdatert." });
   });
-
-  for (const button of elements.dashboardView.querySelectorAll("[data-device-open]")) {
-    button.addEventListener("click", () => {
-      navigateTo(`#device/${encodeURIComponent(button.dataset.deviceOpen)}`);
-    });
-  }
+  elements.appView.querySelector("#backToDashboardButton").addEventListener("click", () => navigateTo("dashboard"));
 }
 
-function renderDeviceView() {
-  const device = getSelectedDevice();
-  if (!device) {
-    navigateTo("");
-    return;
-  }
+function renderAccount() {
+  const account = state.account || { user: state.session, stats: { sensorCount: state.dashboard?.items?.length || 0 } };
+  const user = account.user || state.session;
 
-  const history = state.history;
-  const historyMarkup = history?.series?.length
-    ? history.series.map(renderHistoryCard).join("")
-    : '<p class="muted">Ingen historiske serier tilgjengelig for denne enheten ennå.</p>';
-
-  elements.deviceView.innerHTML = `
+  elements.appView.innerHTML = `
     <section class="stack">
-      <div class="hero-card">
-        <div class="split-head">
-          <div>
-            <p class="eyebrow">Enhet</p>
-            <h2>${escapeHtml(device.friendlyName)}</h2>
-          </div>
-          <button id="backToDevicesButton" class="secondary-button" type="button">Tilbake til oversikt</button>
+      <div class="hero-card hero-grid">
+        <div class="compact-stack">
+          <p class="eyebrow">Konto</p>
+          <h2>${escapeHtml(user.displayName)}</h2>
+          <p class="muted">${escapeHtml(user.email)}</p>
         </div>
-        <p class="muted">${escapeHtml(device.vendorModel)}</p>
-        <div class="pill-row">
-          ${renderPill(device.availabilityLabel, device.availability === "online" ? "ok" : "warn")}
-          ${renderPill(device.interviewLabel, device.interviewing ? "warn" : "ok")}
-          ${renderPill(device.powerSource || "Ukjent strømkilde", "neutral")}
-          ${renderPill(device.homekit.supported ? "HomeKit-støttet" : "Ikke HomeKit-støttet", device.homekit.supported ? "ok" : "neutral")}
-        </div>
+        <article class="card compact-stack">
+          <p class="eyebrow">Status</p>
+          <h3>${escapeHtml(String(account.stats?.sensorCount || 0))} sensorer</h3>
+          <p class="muted">Denne siden lar deg oppdatere navn, e-post og passord uten å forlate PWA-en.</p>
+        </article>
       </div>
 
-      <div class="grid two-up">
+      <section class="grid two-up">
         <article class="card">
-          <p class="eyebrow">Detaljer</p>
-          <h3>Status og mål</h3>
-          <dl class="meta-list">
-            <div><dt>ID</dt><dd>${escapeHtml(device.id)}</dd></div>
-            <div><dt>IEEE</dt><dd>${escapeHtml(device.ieeeAddress || "Ukjent")}</dd></div>
-            <div><dt>Batteri</dt><dd>${escapeHtml(device.batteryLabel)}</dd></div>
-            <div><dt>Rom</dt><dd>${escapeHtml(device.area || "Ikke satt")}</dd></div>
-          </dl>
-        </article>
-
-        <article class="card">
-          <p class="eyebrow">Handlinger</p>
-          <h3>Rename og HomeKit</h3>
-          <form id="renameForm" class="stack compact-stack">
+          <p class="eyebrow">Profil</p>
+          <h3>Oppdater kontoopplysninger</h3>
+          <form id="accountForm" class="stack">
             <label class="field">
-              <span>Visningsnavn</span>
-              <input name="friendlyName" type="text" value="${escapeAttribute(device.friendlyName)}" required />
+              <span>Navn</span>
+              <input name="displayName" type="text" value="${escapeAttribute(user.displayName || "")}" required />
             </label>
-            <div class="button-row">
-              <button class="secondary-button" type="submit">${state.renameBusy ? "Lagrer…" : "Lagre navn"}</button>
-            </div>
+            <label class="field">
+              <span>E-post</span>
+              <input name="email" type="email" value="${escapeAttribute(user.email || "")}" required />
+            </label>
+            <button class="primary-button" type="submit">${state.accountSaving ? "Lagrer…" : "Lagre konto"}</button>
           </form>
-          <div class="inline-toggle">
-            <div>
-              <strong>Del til HomeKit</strong>
-              <p class="muted">${escapeHtml(device.homekit.message)}</p>
-            </div>
-            <button id="homekitToggleButton" class="${device.homekit.shared ? "primary-button" : "secondary-button"}" type="button" ${device.homekit.supported ? "" : "disabled"}>
-              ${state.homekitBusy ? "Oppdaterer…" : device.homekit.shared ? "Delt" : "Ikke delt"}
-            </button>
-          </div>
         </article>
-      </div>
 
-      <article class="card">
-        <div class="split-head">
-          <div>
-            <p class="eyebrow">Historikk</p>
-            <h3>Sensorserier fra Home Assistant Recorder</h3>
-          </div>
-          <label class="range-picker">
-            <span>Periode</span>
-            <select id="historyRangeSelect">
-              ${HISTORY_RANGE_OPTIONS.map((option) => `<option value="${option}" ${option === state.historyRange ? "selected" : ""}>${option}</option>`).join("")}
-            </select>
-          </label>
-        </div>
-        ${state.historyLoading ? '<p class="muted">Laster historikk…</p>' : historyMarkup}
-      </article>
-
-      <article class="card">
-        <p class="eyebrow">Entities</p>
-        <h3>Relevante Home Assistant-entities</h3>
-        <div class="entity-list">
-          ${device.entities.length ? device.entities.map(renderEntityRow).join("") : '<p class="muted">Ingen relevante entities ble matchet for denne enheten.</p>'}
-        </div>
-      </article>
+        <article class="card">
+          <p class="eyebrow">Sikkerhet</p>
+          <h3>Endre passord</h3>
+          <form id="passwordForm" class="stack">
+            <label class="field">
+              <span>Nåværende passord</span>
+              <input name="currentPassword" type="password" autocomplete="current-password" required />
+            </label>
+            <label class="field">
+              <span>Nytt passord</span>
+              <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
+            </label>
+            <button class="secondary-button" type="submit">${state.passwordSaving ? "Oppdaterer…" : "Bytt passord"}</button>
+          </form>
+          <button id="logoutButton" class="ghost-button full-width" type="button">Logg ut</button>
+        </article>
+      </section>
     </section>
   `;
 
-  elements.deviceView.querySelector("#backToDevicesButton").addEventListener("click", () => navigateTo(""));
-  elements.deviceView.querySelector("#renameForm").addEventListener("submit", handleRename);
-  elements.deviceView.querySelector("#homekitToggleButton").addEventListener("click", handleHomeKitToggle);
-  elements.deviceView.querySelector("#historyRangeSelect").addEventListener("change", async (event) => {
-    state.historyRange = event.target.value;
-    await loadHistoryForSelectedDevice();
-  });
+  elements.appView.querySelector("#accountForm").addEventListener("submit", saveAccount);
+  elements.appView.querySelector("#passwordForm").addEventListener("submit", changePassword);
+  elements.appView.querySelector("#logoutButton").addEventListener("click", logout);
 }
 
-function renderSettingsView() {
-  const config = state.config || {};
-
-  elements.settingsView.innerHTML = `
-    <section class="stack">
-      <div class="hero-card">
-        <p class="eyebrow">Innstillinger</p>
-        <h2>Lokal gateway-konfigurasjon</h2>
-        <p class="muted">
-          Jordd holder tokens og MQTT-detaljer på gatewayen. Frontenden får bare status og normaliserte enhetsdata tilbake.
-        </p>
-      </div>
-
-      <article class="card">
-        <form id="settingsForm" class="stack">
-          ${renderGatewayFields(config, { onboarding: false })}
-          <div class="button-row">
-            <button class="primary-button" type="submit">${state.savingConfig ? "Lagrer…" : "Lagre gateway-oppsett"}</button>
-            <button id="backFromSettingsButton" class="secondary-button" type="button">Tilbake</button>
-          </div>
-        </form>
-      </article>
-    </section>
-  `;
-
-  elements.settingsView.querySelector("#settingsForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await submitConfigForm(event.currentTarget, { reload: true });
-  });
-  elements.settingsView.querySelector("#backFromSettingsButton").addEventListener("click", () => navigateTo(""));
-}
-
-function renderGatewayFields(config, options) {
-  const onboardingCopy = options.onboarding
-    ? "Fyll inn det lokale oppsettet ditt. Tomme passord/token-felt blir lagret som nye verdier første gang."
-    : "La token- og passordfeltene stå tomme hvis du vil beholde de som allerede er lagret på gatewayen.";
-
-  return `
-    <p class="muted">${escapeHtml(onboardingCopy)}</p>
-    <div class="field-grid">
-      <label class="field">
-        <span>Home Assistant URL</span>
-        <input name="haUrl" type="text" value="${escapeAttribute(config.haUrl || "")}" placeholder="http://homeassistant.local:8123" required />
-      </label>
-      <label class="field">
-        <span>Home Assistant token ${config.hasHaToken ? "(lagret)" : ""}</span>
-        <input name="haToken" type="password" value="" placeholder="${config.hasHaToken ? "La stå tomt for å beholde" : "Long-lived access token"}" ${options.onboarding && !config.hasHaToken ? "required" : ""} />
-      </label>
-      <label class="field">
-        <span>MQTT host</span>
-        <input name="mqttHost" type="text" value="${escapeAttribute(config.mqttHost || "")}" placeholder="localhost" required />
-      </label>
-      <label class="field">
-        <span>MQTT port</span>
-        <input name="mqttPort" type="number" min="1" max="65535" value="${escapeAttribute(String(config.mqttPort || 1883))}" required />
-      </label>
-      <label class="field">
-        <span>MQTT bruker</span>
-        <input name="mqttUser" type="text" value="${escapeAttribute(config.mqttUser || "")}" placeholder="Valgfritt" />
-      </label>
-      <label class="field">
-        <span>MQTT passord ${config.hasMqttPassword ? "(lagret)" : ""}</span>
-        <input name="mqttPassword" type="password" value="" placeholder="${config.hasMqttPassword ? "La stå tomt for å beholde" : "Valgfritt"}" />
-      </label>
-      <label class="field">
-        <span>Zigbee2MQTT topic prefix</span>
-        <input name="mqttTopicPrefix" type="text" value="${escapeAttribute(config.mqttTopicPrefix || "zigbee2mqtt")}" placeholder="zigbee2mqtt" required />
-      </label>
-      <label class="field">
-        <span>HomeKit sync service</span>
-        <input name="homekitSyncService" type="text" value="${escapeAttribute(config.homekitSyncService || "")}" placeholder="script.jordd_sync_homekit (valgfritt)" />
-      </label>
-    </div>
-  `;
-}
-
-function renderStatusCard(title, status) {
-  const healthy = Boolean(status?.ok);
-  return `
-    <article class="status-card ${healthy ? "ok" : "warn"}">
-      <p class="eyebrow">${escapeHtml(title)}</p>
-      <strong>${healthy ? "Klar" : "Problem"}</strong>
-      <p class="muted">${escapeHtml(status?.message || "Ingen status ennå")}</p>
-    </article>
-  `;
-}
-
-function renderDeviceCard(device) {
-  return `
-    <button class="device-card" type="button" data-device-open="${escapeAttribute(device.id)}">
-      <div class="split-head">
-        <div>
-          <strong>${escapeHtml(device.friendlyName)}</strong>
-          <p class="muted">${escapeHtml(device.vendorModel)}</p>
-        </div>
-        <span class="availability ${escapeAttribute(device.availability)}">${escapeHtml(device.availabilityLabel)}</span>
-      </div>
-      <div class="pill-row compact-row">
-        ${renderPill(device.batteryLabel, "neutral")}
-        ${renderPill(device.powerSource || "Ukjent strøm", "neutral")}
-        ${renderPill(device.homekit.shared ? "Delt til HomeKit" : "Ikke delt", device.homekit.shared ? "ok" : "neutral")}
-      </div>
-      <p class="muted">${escapeHtml(device.summary)}</p>
-    </button>
-  `;
-}
-
-function renderPill(label, tone) {
-  return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
-}
-
-function renderHistoryCard(series) {
-  return `
-    <article class="history-card">
-      <div class="split-head">
-        <div>
-          <strong>${escapeHtml(series.name)}</strong>
-          <p class="muted">${escapeHtml(series.entityId)}</p>
-        </div>
-        <span class="muted">${escapeHtml(series.latestLabel)}</span>
-      </div>
-      ${renderSparkline(series.points, series.unit)}
-    </article>
-  `;
-}
-
-function renderSparkline(points, unit) {
-  if (!points.length) {
-    return '<p class="muted">Ingen punkter i valgt periode.</p>';
-  }
-
-  const width = 520;
-  const height = 140;
-  const padding = 16;
-  const values = points.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-
-  const path = points
-    .map((point, index) => {
-      const x = padding + (index / Math.max(points.length - 1, 1)) * (width - padding * 2);
-      const y = height - padding - ((point.value - min) / span) * (height - padding * 2);
-      return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
-    })
-    .join(" ");
-
-  return `
-    <div class="chart-wrap">
-      <svg viewBox="0 0 ${width} ${height}" class="sparkline" role="img" aria-label="Historikk for ${escapeAttribute(unit || "verdi")}">
-        <path d="${path}" />
-      </svg>
-      <div class="chart-scale">
-        <span>${escapeHtml(formatNumber(max, unit))}</span>
-        <span>${escapeHtml(formatNumber(min, unit))}</span>
-      </div>
-    </div>
-  `;
-}
-
-function renderEntityRow(entity) {
-  return `
-    <div class="entity-row">
-      <strong>${escapeHtml(entity.name)}</strong>
-      <code>${escapeHtml(entity.entityId)}</code>
-      <span class="muted">${escapeHtml(entity.stateLabel)}</span>
-    </div>
-  `;
-}
-
-async function submitConfigForm(form, options = {}) {
-  const formData = new FormData(form);
-  const payload = {
-    haUrl: normalizeUrl(formData.get("haUrl")),
-    haToken: String(formData.get("haToken") || "").trim(),
-    mqttHost: String(formData.get("mqttHost") || "").trim(),
-    mqttPort: Number(formData.get("mqttPort") || 1883),
-    mqttUser: String(formData.get("mqttUser") || "").trim(),
-    mqttPassword: String(formData.get("mqttPassword") || ""),
-    mqttTopicPrefix: String(formData.get("mqttTopicPrefix") || "").trim(),
-    homekitSyncService: String(formData.get("homekitSyncService") || "").trim(),
-  };
-
-  if (!payload.haUrl || !payload.mqttHost || !payload.mqttTopicPrefix || !payload.mqttPort) {
-    setMessage("Fyll inn Home Assistant URL, MQTT host, port og Zigbee2MQTT topic prefix.", "error");
-    render();
-    return;
-  }
-
-  state.savingConfig = true;
-  render();
-
-  try {
-    state.config = await apiPost("/config", payload);
-    setMessage("Gateway-konfigurasjon lagret.", "success");
-    if (options.reload) {
-      await bootstrap();
-      navigateTo("");
-    }
-  } catch (error) {
-    setMessage(getErrorMessage(error), "error");
-  } finally {
-    state.savingConfig = false;
-    render();
-  }
-}
-
-async function loadStatus(forceMessage = false) {
-  state.statusLoading = true;
-  render();
-
-  try {
-    state.systemStatus = await apiGet("/system/status");
-    if (forceMessage) {
-      setMessage("Systemstatus oppdatert.", "success");
-    }
-  } catch (error) {
-    setMessage(getErrorMessage(error), "error");
-  } finally {
-    state.statusLoading = false;
-    render();
-  }
-}
-
-async function loadDevices(forceMessage = false) {
-  state.devicesLoading = true;
-  render();
-
-  try {
-    const response = await apiGet("/devices");
-    state.devices = response.items || [];
-    syncSelectedDeviceFromRoute();
-    if (forceMessage) {
-      setMessage("Enhetslisten er oppdatert.", "success");
-    }
-  } catch (error) {
-    setMessage(getErrorMessage(error), "error");
-  } finally {
-    state.devicesLoading = false;
-    render();
-  }
-}
-
-async function loadHistoryForSelectedDevice() {
-  const device = getSelectedDevice();
-  if (!device) {
-    state.history = null;
-    render();
-    return;
-  }
-
-  state.historyLoading = true;
-  render();
-
-  try {
-    state.history = await apiGet(`/devices/${encodeURIComponent(device.id)}/history?range=${encodeURIComponent(state.historyRange)}`);
-  } catch (error) {
-    state.history = null;
-    setMessage(getErrorMessage(error), "error");
-  } finally {
-    state.historyLoading = false;
-    render();
-  }
-}
-
-async function handlePermitJoin() {
-  state.permitJoinBusy = true;
-  render();
-
-  try {
-    const response = await apiPost("/zigbee/permit-join", { seconds: 254 });
-    setMessage(response.message || "Permit join aktivert.", "success");
-    await Promise.all([loadStatus(), loadDevices()]);
-  } catch (error) {
-    setMessage(getErrorMessage(error), "error");
-  } finally {
-    state.permitJoinBusy = false;
-    render();
-  }
-}
-
-async function handleRename(event) {
+async function handleLogin(event) {
   event.preventDefault();
-  const device = getSelectedDevice();
-  if (!device) {
-    return;
-  }
-
   const formData = new FormData(event.currentTarget);
-  const nextName = String(formData.get("friendlyName") || "").trim();
-  if (!nextName) {
-    setMessage("Skriv inn et nytt navn for enheten.", "error");
-    render();
-    return;
-  }
+  await authenticate("/auth/login", {
+    email: String(formData.get("email") || "").trim(),
+    password: String(formData.get("password") || ""),
+  });
+}
 
-  state.renameBusy = true;
+async function handleRegister(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  await authenticate("/auth/register", {
+    displayName: String(formData.get("displayName") || "").trim(),
+    email: String(formData.get("email") || "").trim(),
+    password: String(formData.get("password") || ""),
+  });
+}
+
+async function authenticate(path, payload) {
+  state.authBusy = true;
   render();
 
   try {
-    const response = await apiPost(`/devices/${encodeURIComponent(device.id)}/rename`, { name: nextName });
-    setMessage(response.message || "Navn oppdatert.", "success");
-    await Promise.all([loadDevices(), loadStatus()]);
-    navigateTo(`#device/${encodeURIComponent(response.deviceId || nextName)}`);
+    const response = await apiPost(path, payload);
+    state.session = response.user;
+    setMessage(path.endsWith("register") ? "Konto opprettet." : "Innlogging vellykket.", "success");
+    navigateTo("dashboard", { replace: true });
+    await loadDashboard({ silent: true });
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
-    state.renameBusy = false;
+    state.authBusy = false;
+    syncPolling();
     render();
   }
 }
 
-async function handleHomeKitToggle() {
-  const device = getSelectedDevice();
-  if (!device || !device.homekit.supported) {
-    return;
+async function loadDashboard(options = {}) {
+  state.dashboardLoading = true;
+  if (!options.silent) {
+    render();
   }
 
-  state.homekitBusy = true;
+  try {
+    state.dashboard = await apiGet("/app/dashboard");
+    if (options.successMessage) {
+      setMessage(options.successMessage, "success");
+    }
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.dashboardLoading = false;
+    render();
+  }
+}
+
+async function loadAccount(options = {}) {
+  state.accountLoading = true;
+  if (!options.silent) {
+    render();
+  }
+
+  try {
+    state.account = await apiGet("/app/account");
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.accountLoading = false;
+    render();
+  }
+}
+
+async function createClaimCode() {
+  state.claimCodeBusy = true;
   render();
 
   try {
-    const response = await apiPost(`/devices/${encodeURIComponent(device.id)}/homekit`, {
-      enabled: !device.homekit.shared,
+    const response = await apiPost("/app/claim-codes", {});
+    state.dashboard = state.dashboard || { items: [] };
+    state.dashboard.activeClaimCode = response.claimCode;
+    setMessage("Ny claim code generert. Ta skjermbilde før du bytter Wi-Fi.", "success");
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.claimCodeBusy = false;
+    render();
+  }
+}
+
+async function saveAccount(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  state.accountSaving = true;
+  render();
+
+  try {
+    const response = await apiPatch("/app/account", {
+      displayName: String(formData.get("displayName") || "").trim(),
+      email: String(formData.get("email") || "").trim(),
     });
-    setMessage(response.message || "HomeKit-status oppdatert.", response.synced === false ? "warn" : "success");
-    await loadDevices();
-    if (getRoute().kind === "device") {
-      await loadHistoryForSelectedDevice();
-    }
+    state.session = response.user;
+    state.account = {
+      ...(state.account || {}),
+      user: response.user,
+      stats: state.account?.stats || { sensorCount: state.dashboard?.items?.length || 0 },
+    };
+    setMessage("Kontoopplysninger lagret.", "success");
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
-    state.homekitBusy = false;
+    state.accountSaving = false;
     render();
   }
 }
 
-function startPolling() {
-  stopPolling();
-  state.pollTimer = window.setInterval(async () => {
-    if (document.hidden) {
-      return;
-    }
-
-    await Promise.all([loadStatus(), loadDevices()]);
-    if (getRoute().kind === "device") {
-      await loadHistoryForSelectedDevice();
-    }
-  }, 15000);
-}
-
-function stopPolling() {
-  if (state.pollTimer) {
-    window.clearInterval(state.pollTimer);
-    state.pollTimer = null;
-  }
-}
-
-function syncSelectedDeviceFromRoute() {
-  const route = getRoute();
-  if (route.kind === "device") {
-    state.selectedDeviceId = route.id;
-    return;
-  }
-
-  state.selectedDeviceId = "";
-}
-
-function getSelectedDevice() {
-  return state.devices.find((device) => device.id === state.selectedDeviceId) || null;
-}
-
-function getRoute() {
-  const hash = location.hash || "";
-  if (hash === "#settings") {
-    return { kind: "settings" };
-  }
-
-  if (hash.startsWith("#device/")) {
-    return { kind: "device", id: decodeURIComponent(hash.slice("#device/".length)) };
-  }
-
-  return { kind: "dashboard" };
-}
-
-function navigateTo(hash) {
-  if (hash) {
-    location.hash = hash;
-    return;
-  }
-
-  history.replaceState(null, "", `${location.pathname}${location.search}`);
-  syncSelectedDeviceFromRoute();
+async function changePassword(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  state.passwordSaving = true;
   render();
+
+  try {
+    await apiPost("/auth/change-password", {
+      currentPassword: String(formData.get("currentPassword") || ""),
+      newPassword: String(formData.get("newPassword") || ""),
+    });
+    event.currentTarget.reset();
+    setMessage("Passord oppdatert.", "success");
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.passwordSaving = false;
+    render();
+  }
 }
 
-function setMessage(message, kind = "info") {
-  state.message = message;
-  state.messageKind = kind;
+async function logout() {
+  try {
+    await apiPost("/auth/logout", {});
+  } catch {
+    // Best effort logout.
+  }
+  stopPolling();
+  state.session = null;
+  state.dashboard = null;
+  state.account = null;
+  setMessage("Du er logget ut.", "info");
+  navigateTo("", { replace: true });
+  render();
 }
 
 async function apiGet(path) {
@@ -822,9 +717,18 @@ async function apiPost(path, body) {
   });
 }
 
+async function apiPatch(path, body) {
+  return apiRequest(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 async function apiRequest(path, options) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       Accept: "application/json",
       ...(options.headers || {}),
@@ -834,11 +738,10 @@ async function apiRequest(path, options) {
 
   const data = await safeJson(response);
   if (!response.ok) {
-    const error = new Error(data?.error || `Request failed with ${response.status}`);
+    const error = new Error(data?.error || `Request feilet med ${response.status}`);
     error.payload = data;
     throw error;
   }
-
   return data;
 }
 
@@ -850,14 +753,18 @@ async function safeJson(response) {
   }
 }
 
+function setMessage(message, kind = "info") {
+  state.message = message;
+  state.messageKind = kind;
+}
+
 async function triggerInstallPrompt() {
   if (!state.installPromptEvent) {
     return;
   }
-
-  const promptEvent = state.installPromptEvent;
-  await promptEvent.prompt();
-  await promptEvent.userChoice;
+  const installPrompt = state.installPromptEvent;
+  await installPrompt.prompt();
+  await installPrompt.userChoice;
   state.installPromptEvent = null;
   render();
 }
@@ -867,37 +774,20 @@ function getInstallInstructions() {
 
   if (/iphone|ipad|ipod/.test(userAgent)) {
     return {
-      lead: "Åpne den lokale Jordd-adressen i Safari, og legg appen til på Hjem-skjermen før du kobler den til gatewayen.",
-      steps: [
-        "Åpne Jordd på lokal adresse i Safari.",
-        "Velg «Legg til på Hjem-skjerm».",
-        "Fyll inn Home Assistant-, MQTT- og Zigbee2MQTT-innstillingene.",
-      ],
+      lead: "Åpne jordd.com i Safari og velg «Legg til på Hjem-skjerm» før du begynner å onboarde sensorer.",
     };
   }
 
   if (/android/.test(userAgent)) {
     return {
       lead: state.installPromptEvent
-        ? "Trykk på installeringsknappen for å lagre Jordd lokalt som app."
-        : "Installer Jordd fra Chrome eller Edge på den lokale gateway-adressen.",
-      steps: [
-        "Åpne Jordd på lokal adresse i Chrome eller Edge.",
-        "Installer appen fra nettleseren.",
-        "Koble deretter appen til Home Assistant og Zigbee2MQTT.",
-      ],
+        ? "Installer PWA-en med knappen over før du begynner å bytte mellom internett og sensorens setup-Wi-Fi."
+        : "Bruk Chrome eller Edge og installer appen fra adressefeltet for den enkleste onboardingflyten.",
     };
   }
 
   return {
-    lead: state.installPromptEvent
-      ? "Trykk på installeringsknappen for å lagre Jordd som skrivebordsapp."
-      : "Installer Jordd fra lokal gateway-adresse i Chrome eller Edge.",
-    steps: [
-      "Åpne lokal Jordd-adresse i Chrome eller Edge.",
-      "Installer appen fra adressefeltet.",
-      "Bruk onboarding til å koble appen til Home Assistant og Zigbee2MQTT.",
-    ],
+    lead: "Installer Jordd som skrivebords- eller mobilapp for å ha claim code og instruksjoner lett tilgjengelig under onboarding.",
   };
 }
 
@@ -905,37 +795,71 @@ function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 }
 
-function normalizeUrl(value) {
-  const rawValue = typeof value === "string" ? value.trim() : "";
-  if (!rawValue) {
-    return "";
-  }
-
-  const candidate = rawValue.match(/^https?:\/\//i) ? rawValue : `http://${rawValue}`;
-  try {
-    return new URL(candidate).toString().replace(/\/$/, "");
-  } catch {
-    return "";
-  }
+function formatTemperature(value) {
+  return typeof value === "number" ? `${value.toFixed(1)} °C` : "Ingen data";
 }
 
-function formatNumber(value, unit = "") {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "Ingen data";
+function formatHumidity(value) {
+  return typeof value === "number" ? `${value.toFixed(0)} %` : "Ingen data";
+}
+
+function formatBattery(reading) {
+  if (typeof reading?.batteryPct === "number") {
+    return `${reading.batteryPct.toFixed(0)} %`;
+  }
+  if (typeof reading?.batteryMv === "number") {
+    return `${reading.batteryMv.toFixed(0)} mV`;
+  }
+  return "Ingen data";
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "ukjent tid";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "ukjent tid";
+  }
+  return new Intl.DateTimeFormat("nb-NO", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatRelativeTime(value) {
+  if (!value) {
+    return "Aldri";
   }
 
-  return `${value.toFixed(Math.abs(value) >= 10 ? 0 : 1)}${unit ? ` ${unit}` : ""}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Ukjent";
+  }
+
+  const deltaMs = date.getTime() - Date.now();
+  const rtf = new Intl.RelativeTimeFormat("nb-NO", { numeric: "auto" });
+  const minutes = Math.round(deltaMs / 60000);
+  if (Math.abs(minutes) < 60) {
+    return rtf.format(minutes, "minute");
+  }
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 48) {
+    return rtf.format(hours, "hour");
+  }
+  const days = Math.round(hours / 24);
+  return rtf.format(days, "day");
 }
 
 function getErrorMessage(error) {
   if (error?.payload?.error) {
     return error.payload.error;
   }
-
   if (error instanceof Error) {
     return error.message;
   }
-
   return "Noe gikk galt.";
 }
 
@@ -956,7 +880,6 @@ async function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) {
     return;
   }
-
   try {
     await navigator.serviceWorker.register("/sw.js");
   } catch (error) {

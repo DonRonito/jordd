@@ -1,4 +1,4 @@
-const CACHE_NAME = "jordd-shell-v4";
+const CACHE_NAME = "jordd-shell-v6";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -34,6 +34,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/")) {
     return;
   }
 
