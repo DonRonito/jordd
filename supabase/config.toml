@@ -1,6 +1,9 @@
 [functions.auth-register]
 verify_jwt = false
 
+[functions.auth-login]
+verify_jwt = false
+
 [functions.auth-change-password]
 verify_jwt = false
 

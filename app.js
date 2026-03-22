@@ -27,6 +27,8 @@ const state = {
 };
 
 const elements = {
+  topbar: document.querySelector(".topbar"),
+  mainContent: document.querySelector(".main-content"),
   pageTitle: document.querySelector("#pageTitle"),
   installButton: document.querySelector("#installButton"),
   primaryNav: document.querySelector("#primaryNav"),
@@ -278,6 +280,9 @@ function render() {
 }
 
 function renderHeader() {
+  const showTopbar = Boolean(state.session) || state.sessionLoading;
+  elements.topbar.classList.toggle("is-hidden", !showTopbar);
+  elements.mainContent.classList.toggle("landing-mode", !showTopbar);
   elements.pageTitle.textContent = "Jordd";
   const authenticated = Boolean(state.session);
   const showInstallButton = Boolean(state.installPromptEvent) && !isStandalone();
@@ -329,21 +334,24 @@ function renderLanding() {
   const registerMode = state.authMode === "register";
   elements.appView.innerHTML = `
     <section class="auth-shell">
-      <article class="card compact-stack">
-        <h2>${registerMode ? "Opprett konto" : "Logg inn"}</h2>
-
-        <form id="${registerMode ? "registerForm" : "loginForm"}" class="stack">
-          ${registerMode ? renderRegisterFields() : renderLoginFields()}
-          <button class="primary-button" type="submit">${state.authBusy ? "Jobber..." : registerMode ? "Opprett konto" : "Logg inn"}</button>
-        </form>
-
-        <div class="button-row">
-          <button id="${registerMode ? "showLoginButton" : "showRegisterButton"}" class="ghost-button" type="button">
-            ${registerMode ? "Tilbake til login" : "Opprett konto med kode"}
-          </button>
-          ${state.installPromptEvent ? '<button id="landingInstallButton" class="secondary-button" type="button">Installer PWA</button>' : ""}
+      <div class="landing-glass compact-stack">
+        <div class="landing-brand compact-stack">
+          <img class="landing-brand-mark" src="/icons/icon.svg" alt="Jordd" />
+          <h1 class="landing-title">Jordd</h1>
         </div>
-      </article>
+
+        <form id="${registerMode ? "registerForm" : "loginForm"}" class="auth-form stack">
+          ${registerMode ? renderRegisterFields() : renderLoginFields()}
+          <button class="primary-button full-width" type="submit">${state.authBusy ? "Jobber..." : registerMode ? "Opprett konto" : "Logg inn"}</button>
+        </form>
+      </div>
+
+      <div class="landing-actions compact-stack">
+        <button id="${registerMode ? "showLoginButton" : "showRegisterButton"}" class="text-button" type="button">
+          ${registerMode ? "Tilbake til login" : "Opprett konto"}
+        </button>
+        ${state.installPromptEvent ? '<button id="landingInstallButton" class="secondary-button" type="button">Installer PWA</button>' : ""}
+      </div>
     </section>
   `;
 
@@ -370,8 +378,8 @@ function renderLanding() {
 function renderLoginFields() {
   return `
     <label class="field">
-      <span>E-post</span>
-      <input name="email" type="email" autocomplete="username" required />
+      <span>E-post eller brukernavn</span>
+      <input name="identifier" type="text" autocomplete="username" required />
     </label>
     <label class="field">
       <span>Passord</span>
@@ -682,19 +690,33 @@ function renderAccountSensorRow(sensor) {
 async function handleLogin(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  const email = String(formData.get("email") || "").trim();
+  const identifier = String(formData.get("identifier") || "").trim();
   const password = String(formData.get("password") || "");
 
   state.authBusy = true;
   render();
 
   try {
-    const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await invokeFunction("auth-login", {
+      identifier,
+      password,
+    }, { requireAuth: false });
     if (error) {
       throw error;
     }
-    state.accessToken = data.session?.access_token || "";
-    state.session = mapUser(data.user);
+    const session = data.session || null;
+    if (!session?.access_token || !session?.refresh_token) {
+      throw new Error("Innloggingen returnerte ikke en gyldig session.");
+    }
+    const { data: sessionData, error: sessionError } = await state.supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+    if (sessionError) {
+      throw sessionError;
+    }
+    state.accessToken = sessionData.session?.access_token || session.access_token;
+    state.session = mapUser(sessionData.session?.user || data.user || null);
     setMessage("Innlogging vellykket.", "success");
     navigateTo("dashboard", { replace: true });
     await loadDashboard({ silent: true });

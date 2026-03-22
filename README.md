@@ -31,6 +31,7 @@ python3 server.py
 Legg inn disse functionene i prosjektet ditt:
 
 - `auth-register`
+- `auth-login`
 - `auth-change-password`
 - `app-dashboard`
 - `app-account`
