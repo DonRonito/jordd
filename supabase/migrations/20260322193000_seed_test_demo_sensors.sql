@@ -78,7 +78,7 @@ upserted as (
     ds.name,
     ds.firmware_version,
     '["demo"]'::jsonb,
-    encode(gen_random_bytes(24), 'hex'),
+    replace(gen_random_uuid()::text, '-', ''),
     ds.upload_interval_minutes,
     now(),
     ds.last_seen_at
