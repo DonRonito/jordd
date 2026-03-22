@@ -83,8 +83,8 @@ a {
 .app-shell {
   position: relative;
   z-index: 1;
-  min-height: 100vh;
-  padding: calc(1rem + env(safe-area-inset-top, 0px)) 1rem 1rem;
+  min-height: 100dvh;
+  padding: 1rem 1rem 1rem;
 }
 
 .topbar,
@@ -115,6 +115,7 @@ a {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  padding-top: max(0.35rem, env(safe-area-inset-top, 0px));
   margin-bottom: 1.2rem;
 }
 
@@ -902,7 +903,7 @@ input:focus {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: calc(1rem + env(safe-area-inset-top, 0px)) 0.8rem 0.8rem;
+    padding: 1rem 0.8rem 0.8rem;
   }
 
   .main-content.landing-mode {
