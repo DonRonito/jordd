@@ -321,7 +321,6 @@ function renderHeader() {
             <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Zm0 2c-4.42 0-8 2.91-8 6.5 0 .83.67 1.5 1.5 1.5h13c.83 0 1.5-.67 1.5-1.5 0-3.59-3.58-6.5-8-6.5Z" />
           </svg>
         </span>
-        <span>${escapeHtml(state.session.displayName)}</span>
       </button>
     `;
   } else {
@@ -450,7 +449,7 @@ function renderDashboard() {
             <svg viewBox="0 0 24 24" class="overview-status-icon" focusable="false" aria-hidden="true">
               <path d="M12 18.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Zm-4.9-3.9a1 1 0 0 0 1.4 1.4 4.94 4.94 0 0 1 7 0 1 1 0 1 0 1.4-1.4 6.94 6.94 0 0 0-9.8 0Zm-3.8-3.8a1 1 0 0 0 1.4 1.4 10.31 10.31 0 0 1 14.6 0 1 1 0 0 0 1.4-1.4 12.31 12.31 0 0 0-17.4 0Z" />
             </svg>
-            <span>${state.dashboardLoading ? "Laster..." : "Live sensorstatus"}</span>
+            <span>${state.dashboardLoading ? "Laster..." : "Live"}</span>
           </span>
         </div>
         <div class="device-grid">
@@ -605,11 +604,13 @@ function renderAccount() {
   elements.appView.innerHTML = `
     <section class="stack">
       <div class="hero-card hero-grid">
-        <div class="compact-stack">
+        <div class="compact-stack account-hero-main">
           <p class="eyebrow">Konto</p>
-          <h2>${escapeHtml(user.displayName)}</h2>
-          <p class="muted">${escapeHtml(user.email)}</p>
-          <button id="logoutButton" class="ghost-button account-logout-button" type="button">Logg ut</button>
+          <div class="split-head account-hero-head">
+            <h2>${escapeHtml(user.displayName)}</h2>
+            <button id="logoutButton" class="ghost-button account-logout-button" type="button">Logg ut</button>
+          </div>
+          <p class="muted account-hero-email">${escapeHtml(user.email)}</p>
         </div>
         <article class="card compact-stack">
           <p class="eyebrow">Status</p>
