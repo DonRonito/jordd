@@ -138,6 +138,43 @@ a {
   border: 1px solid rgba(183, 226, 219, 0.08);
 }
 
+.user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.72rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  white-space: nowrap;
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.user-pill[data-active="true"] {
+  background: rgba(255, 180, 77, 0.18);
+  color: var(--accent-strong);
+}
+
+.user-pill-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: rgba(255, 180, 77, 0.16);
+  color: var(--accent);
+}
+
+.user-pill-svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  display: block;
+  fill: currentColor;
+}
+
 .eyebrow {
   margin: 0 0 0.35rem;
   font-family: var(--font-display);
@@ -185,7 +222,8 @@ button {
 .card,
 .hero-card,
 .device-card,
-.empty-state {
+.empty-state,
+.add-sensor-card {
   backdrop-filter: blur(18px);
   background: var(--panel);
   border: 1px solid var(--border);
@@ -204,7 +242,8 @@ button {
 
 .card,
 .device-card,
-.empty-state {
+.empty-state,
+.add-sensor-card {
   padding: 1.35rem;
   border-radius: var(--radius-sm);
 }
@@ -325,6 +364,10 @@ button {
   color: var(--muted);
 }
 
+.status-summary {
+  margin-top: -0.2rem;
+}
+
 .split-head {
   display: flex;
   align-items: flex-start;
@@ -400,6 +443,11 @@ input:focus {
   width: 100%;
 }
 
+.account-logout-button {
+  justify-self: start;
+  margin-top: -0.2rem;
+}
+
 .inline-feedback {
   margin-bottom: 1rem;
   padding: 0.85rem 1rem;
@@ -470,6 +518,41 @@ input:focus {
   font-family: var(--font-display);
   font-size: clamp(2rem, 5vw, 3rem);
   letter-spacing: 0.12em;
+}
+
+.add-sensor-card {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.55rem;
+  min-height: 17rem;
+  width: 100%;
+  text-align: center;
+  background: rgba(17, 48, 59, 0.72);
+  border: 1px solid rgba(183, 226, 219, 0.14);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.add-sensor-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 180, 77, 0.26);
+  background: rgba(20, 54, 66, 0.78);
+}
+
+.add-sensor-plus {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 7vw, 4.75rem);
+  line-height: 1;
+  color: var(--accent);
+}
+
+.add-sensor-label {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  color: var(--text);
 }
 
 .sensor-admin-list {

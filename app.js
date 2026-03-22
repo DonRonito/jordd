@@ -295,9 +295,15 @@ function renderHeader() {
     const currentRoute = getRoute();
     elements.primaryNav.hidden = false;
     elements.primaryNav.innerHTML = `
-      <button data-route="dashboard" class="ghost-button" data-active="${String(currentRoute === "dashboard")}" type="button">Sensorer</button>
-      <button data-route="add-sensor" class="ghost-button" data-active="${String(currentRoute === "add-sensor")}" type="button">Legg til</button>
-      <button data-route="account" class="ghost-button" data-active="${String(currentRoute === "account")}" type="button">Konto</button>
+      <button data-route="dashboard" class="ghost-button" data-active="${String(currentRoute === "dashboard")}" type="button">Oversikt</button>
+      <button data-route="account" class="user-pill" data-active="${String(currentRoute === "account")}" type="button">
+        <span class="user-pill-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="user-pill-svg" focusable="false">
+            <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Zm0 2c-4.42 0-8 2.91-8 6.5 0 .83.67 1.5 1.5 1.5h13c.83 0 1.5-.67 1.5-1.5 0-3.59-3.58-6.5-8-6.5Z" />
+          </svg>
+        </span>
+        <span>${escapeHtml(state.session.displayName)}</span>
+      </button>
     `;
   } else {
     elements.primaryNav.hidden = true;
@@ -378,7 +384,7 @@ function renderLanding() {
 function renderLoginFields() {
   return `
     <label class="field">
-      <span>E-post eller brukernavn</span>
+      <span>Brukernavn</span>
       <input name="identifier" type="text" autocomplete="username" required />
     </label>
     <label class="field">
@@ -415,53 +421,29 @@ function renderDashboard() {
 
   elements.appView.innerHTML = `
     <section class="stack">
-      <div class="hero-card hero-grid">
-        <div class="compact-stack">
-          <p class="eyebrow">Dashboard</p>
-          <h2>${count ? `${count} sensor${count === 1 ? "" : "er"} pa kontoen din` : "Ingen sensorer enda"}</h2>
-          <p class="muted">
-            Sensorene dine sender siste temperatur, luftfuktighet og batteristatus direkte til Jordd.
-          </p>
-          <div class="button-row">
-            <button id="dashboardRefreshButton" class="primary-button" type="button">${state.dashboardLoading ? "Oppdaterer..." : "Oppdater na"}</button>
-            <button id="dashboardAddSensorButton" class="secondary-button" type="button">Legg til sensor</button>
-          </div>
-        </div>
-
-        <article class="card compact-stack">
-          <p class="eyebrow">Konto</p>
-          <h3>${escapeHtml(state.session.displayName)}</h3>
-          <p class="muted">${escapeHtml(state.session.email)}</p>
-          <p class="muted">Sensorer markeres offline nar de ikke har sendt data pa over to rapporteringsintervaller.</p>
-        </article>
-      </div>
-
       <article class="card">
         <div class="split-head">
           <div>
-            <p class="eyebrow">Sensorer</p>
-            <h3>Latest reading cards</h3>
+            <p class="eyebrow">Oversikt</p>
+            <h3>${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen` : "Ingen sensorer på kontoen enda"}</h3>
           </div>
-          <span class="muted">${state.dashboardLoading ? "Laster..." : "Direkte fra Supabase"}</span>
+          <span class="muted">${state.dashboardLoading ? "Laster..." : "Direkte fra Jordd"}</span>
         </div>
         <div class="device-grid">
-          ${count ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
+          ${count ? dashboard.items.map(renderSensorCard).join("") : ""}
+          ${renderAddSensorCard()}
         </div>
       </article>
     </section>
   `;
-
-  elements.appView.querySelector("#dashboardRefreshButton").addEventListener("click", async () => {
-    await loadDashboard({ successMessage: "Dashboard oppdatert." });
-  });
-  elements.appView.querySelector("#dashboardAddSensorButton").addEventListener("click", () => navigateTo("add-sensor"));
+  elements.appView.querySelector("#dashboardAddSensorCard").addEventListener("click", () => navigateTo("add-sensor"));
 }
 
 function renderEmptySensors() {
   return `
     <article class="empty-state">
       <strong>Ingen sensorer er koblet til enda.</strong>
-      <p class="muted">Ga til «Legg til» for a generere en claim code og onboarde den forste Jordd-sensoren din.</p>
+      <p class="muted">Bruk knappen for a legge til sensor for a generere en claim code og onboarde den forste Jordd-sensoren din.</p>
     </article>
   `;
 }
@@ -499,6 +481,15 @@ function renderSensorCard(sensor) {
 
       <p class="muted">Firmware ${escapeHtml(sensor.firmwareVersion || "ukjent")} · rapporterer hvert ${escapeHtml(String(sensor.uploadIntervalMinutes || 60))}. minutt</p>
     </article>
+  `;
+}
+
+function renderAddSensorCard() {
+  return `
+    <button id="dashboardAddSensorCard" class="add-sensor-card" type="button">
+      <span class="add-sensor-plus">+</span>
+      <span class="add-sensor-label">Legg til sensor</span>
+    </button>
   `;
 }
 
@@ -584,6 +575,8 @@ function renderAccount() {
   const account = state.account || { user: state.session, stats: { sensorCount: state.dashboard?.items?.length || 0 }, sensors: [] };
   const user = account.user || state.session;
   const sensors = account.sensors?.length ? account.sensors : state.dashboard?.items || [];
+  const onlineCount = sensors.filter((sensor) => sensor.online).length;
+  const offlineCount = Math.max(sensors.length - onlineCount, 0);
 
   elements.appView.innerHTML = `
     <section class="stack">
@@ -592,11 +585,13 @@ function renderAccount() {
           <p class="eyebrow">Konto</p>
           <h2>${escapeHtml(user.displayName)}</h2>
           <p class="muted">${escapeHtml(user.email)}</p>
+          <button id="logoutButton" class="ghost-button account-logout-button" type="button">Logg ut</button>
         </div>
         <article class="card compact-stack">
           <p class="eyebrow">Status</p>
           <h3>${escapeHtml(String(account.stats?.sensorCount || 0))} sensorer</h3>
-          <p class="muted">Denne siden lar deg oppdatere navn, e-post og passord uten a forlate PWA-en.</p>
+          <p class="muted status-summary">${escapeHtml(String(onlineCount))} online · ${escapeHtml(String(offlineCount))} offline</p>
+          <button id="accountAddSensorButton" class="primary-button" type="button">Legg til sensor</button>
         </article>
       </div>
 
@@ -606,14 +601,14 @@ function renderAccount() {
           <h3>Oppdater kontoopplysninger</h3>
           <form id="accountForm" class="stack">
             <label class="field">
-              <span>Navn</span>
+              <span>Brukernavn</span>
               <input name="displayName" type="text" value="${escapeAttribute(user.displayName || "")}" required />
             </label>
             <label class="field">
               <span>E-post</span>
               <input name="email" type="email" value="${escapeAttribute(user.email || "")}" required />
             </label>
-            <button class="primary-button" type="submit">${state.accountSaving ? "Lagrer..." : "Lagre konto"}</button>
+            <button class="secondary-button" type="submit">${state.accountSaving ? "Lagrer..." : "Lagre opplysninger"}</button>
           </form>
         </article>
 
@@ -622,7 +617,7 @@ function renderAccount() {
           <h3>Endre passord</h3>
           <form id="passwordForm" class="stack">
             <label class="field">
-              <span>Navaerende passord</span>
+              <span>Nåværende passord</span>
               <input name="currentPassword" type="password" autocomplete="current-password" required />
             </label>
             <label class="field">
@@ -631,7 +626,6 @@ function renderAccount() {
             </label>
             <button class="secondary-button" type="submit">${state.passwordSaving ? "Oppdaterer..." : "Bytt passord"}</button>
           </form>
-          <button id="logoutButton" class="ghost-button full-width" type="button">Logg ut</button>
         </article>
       </section>
 
@@ -657,6 +651,7 @@ function renderAccount() {
 
   elements.appView.querySelector("#accountForm").addEventListener("submit", saveAccount);
   elements.appView.querySelector("#passwordForm").addEventListener("submit", changePassword);
+  elements.appView.querySelector("#accountAddSensorButton").addEventListener("click", () => navigateTo("add-sensor"));
   elements.appView.querySelector("#logoutButton").addEventListener("click", logout);
   elements.appView.querySelectorAll("[data-delete-sensor-id]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -697,14 +692,11 @@ async function handleLogin(event) {
   render();
 
   try {
-    const { data, error } = await invokeFunction("auth-login", {
+    const response = await invokeFunction("auth-login", {
       identifier,
       password,
     }, { requireAuth: false });
-    if (error) {
-      throw error;
-    }
-    const session = data.session || null;
+    const session = response.session || null;
     if (!session?.access_token || !session?.refresh_token) {
       throw new Error("Innloggingen returnerte ikke en gyldig session.");
     }
@@ -716,7 +708,7 @@ async function handleLogin(event) {
       throw sessionError;
     }
     state.accessToken = sessionData.session?.access_token || session.access_token;
-    state.session = mapUser(sessionData.session?.user || data.user || null);
+    state.session = mapUser(sessionData.session?.user || response.user || null);
     setMessage("Innlogging vellykket.", "success");
     navigateTo("dashboard", { replace: true });
     await loadDashboard({ silent: true });
