@@ -307,7 +307,14 @@ function renderHeader() {
   if (authenticated) {
     elements.primaryNav.hidden = false;
     elements.primaryNav.innerHTML = `
-      <button data-route="dashboard" class="ghost-button" data-active="${String(currentRoute === "dashboard")}" type="button">Oversikt</button>
+      <button data-route="dashboard" class="ghost-button nav-overview-button" data-active="${String(currentRoute === "dashboard")}" type="button">
+        <span class="nav-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="nav-icon-svg" focusable="false">
+            <path d="M4.75 4.75h6.5v6.5h-6.5v-6.5Zm8.5 0h6v4.5h-6v-4.5Zm0 6.5h6v8h-6v-8Zm-8.5 2h6.5v6h-6.5v-6Z" />
+          </svg>
+        </span>
+        <span>Oversikt</span>
+      </button>
       <button data-route="account" class="user-pill" data-active="${String(currentRoute === "account")}" type="button">
         <span class="user-pill-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" class="user-pill-svg" focusable="false">
@@ -437,9 +444,14 @@ function renderDashboard() {
         <div class="split-head">
           <div>
             <p class="eyebrow">Oversikt</p>
-            <h3 class="${count ? "" : "empty-dashboard-title"}">${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen` : "Ingen sensorer på kontoen enda"}</h3>
+            <h3 class="${count ? "dashboard-count-title" : "empty-dashboard-title"}">${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen` : "Ingen sensorer på kontoen enda"}</h3>
           </div>
-          <span class="muted">${state.dashboardLoading ? "Laster..." : "Direkte fra Jordd"}</span>
+          <span class="muted overview-status">
+            <svg viewBox="0 0 24 24" class="overview-status-icon" focusable="false" aria-hidden="true">
+              <path d="M12 18.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Zm-4.9-3.9a1 1 0 0 0 1.4 1.4 4.94 4.94 0 0 1 7 0 1 1 0 1 0 1.4-1.4 6.94 6.94 0 0 0-9.8 0Zm-3.8-3.8a1 1 0 0 0 1.4 1.4 10.31 10.31 0 0 1 14.6 0 1 1 0 0 0 1.4-1.4 12.31 12.31 0 0 0-17.4 0Z" />
+            </svg>
+            <span>${state.dashboardLoading ? "Laster..." : "Live sensorstatus"}</span>
+          </span>
         </div>
         <div class="device-grid">
           ${count ? dashboard.items.map(renderSensorCard).join("") : ""}
@@ -467,32 +479,51 @@ function renderSensorCard(sensor) {
       <div class="split-head">
         <div>
           <strong>${escapeHtml(sensor.name)}</strong>
-          <p class="muted">${escapeHtml(sensor.deviceUid)}</p>
+          <p class="muted sensor-meta sensor-device-id">${escapeHtml(sensor.deviceUid)}</p>
         </div>
-        <span class="availability ${sensor.online ? "online" : "offline"}">${escapeHtml(sensor.online ? "Online" : "Offline")}</span>
+        <span
+          class="availability-dot ${sensor.online ? "online" : "offline"}"
+          title="${escapeHtml(sensor.online ? "Online" : "Offline")}"
+          aria-label="${escapeHtml(sensor.online ? "Online" : "Offline")}"
+        >
+          <svg viewBox="0 0 24 24" class="availability-dot-icon" focusable="false" aria-hidden="true">
+            <path d="M12 18.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Zm-4.9-3.9a1 1 0 0 0 1.4 1.4 4.94 4.94 0 0 1 7 0 1 1 0 1 0 1.4-1.4 6.94 6.94 0 0 0-9.8 0Zm-3.8-3.8a1 1 0 0 0 1.4 1.4 10.31 10.31 0 0 1 14.6 0 1 1 0 0 0 1.4-1.4 12.31 12.31 0 0 0-17.4 0Z" />
+          </svg>
+        </span>
       </div>
 
       <div class="metrics-grid">
-        <div class="metric">
-          <span class="metric-label">Temperatur</span>
-          <strong>${formatTemperature(reading.temperatureC)}</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Fukt</span>
-          <strong>${formatHumidity(reading.humidityPct)}</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Batteri</span>
-          <strong>${formatBattery(reading)}</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Sist sett</span>
-          <strong>${formatRelativeTime(sensor.lastSeenAt)}</strong>
-        </div>
+        ${renderMetric("Temperatur", formatTemperature(reading.temperatureC), "M12 2.25A3.25 3.25 0 0 0 8.75 5.5v7.98a4.75 4.75 0 1 0 6.5 0V5.5A3.25 3.25 0 0 0 12 2.25Zm1.75 12.15.33.2a3.25 3.25 0 1 1-4.16 0l.33-.2V5.5a1.75 1.75 0 1 1 3.5 0v8.9ZM11.25 7h1.5v6.5h-1.5V7Z")}
+        ${renderMetric("Fukt", formatHumidity(reading.humidityPct), "M12 2.5c-.3 0-.58.13-.77.36C9.87 4.46 6 9.16 6 13a6 6 0 1 0 12 0c0-3.84-3.87-8.54-5.23-10.14A1 1 0 0 0 12 2.5Zm0 2.59c1.49 1.86 4 5.43 4 7.91a4 4 0 1 1-8 0c0-2.48 2.51-6.05 4-7.91Z")}
+        ${renderMetric("Batteri", formatBattery(reading), "M13.2 2.5 6.8 12h4.15L9.9 21.5l7.3-10h-4Z")}
+        ${renderMetric("Sist sett", formatRelativeTime(sensor.lastSeenAt), "M12 1.75A10.25 10.25 0 1 0 22.25 12 10.26 10.26 0 0 0 12 1.75Zm0 18.5A8.25 8.25 0 1 1 20.25 12 8.26 8.26 0 0 1 12 20.25Zm.75-12.5h-1.5V12c0 .27.11.52.29.71l3 3 1.06-1.06-2.85-2.86V7.75Z")}
       </div>
 
-      <p class="muted">Firmware ${escapeHtml(sensor.firmwareVersion || "ukjent")} · rapporterer hvert ${escapeHtml(String(sensor.uploadIntervalMinutes || 60))}. minutt</p>
+      <p class="muted sensor-meta sensor-footer">Firmware ${escapeHtml(sensor.firmwareVersion || "ukjent")} · rapporterer hvert ${escapeHtml(String(sensor.uploadIntervalMinutes || 60))}. minutt</p>
     </article>
+  `;
+}
+
+function renderMetric(label, value, iconPath) {
+  return `
+    <div class="metric">
+      <span class="metric-icon-wrap metric-icon-wrap-side" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="metric-icon" focusable="false">
+          <path d="${iconPath}" />
+        </svg>
+      </span>
+      <div class="metric-copy">
+        <span class="metric-label">
+          <span class="metric-icon-wrap metric-icon-wrap-inline" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="metric-icon" focusable="false">
+              <path d="${iconPath}" />
+            </svg>
+          </span>
+          ${escapeHtml(label)}
+        </span>
+        <strong>${escapeHtml(value)}</strong>
+      </div>
+    </div>
   `;
 }
 
@@ -656,21 +687,34 @@ function renderAccount() {
 function renderAccountSensorRow(sensor) {
   return `
     <article class="sensor-admin-item">
-      <div class="compact-stack">
-        <div class="split-head">
-          <div>
-            <strong>${escapeHtml(sensor.name)}</strong>
-            <p class="muted">${escapeHtml(sensor.deviceUid)}</p>
-          </div>
-          <span class="availability ${sensor.online ? "online" : "offline"}">${escapeHtml(sensor.online ? "Online" : "Offline")}</span>
-        </div>
-        <p class="muted">Sist sett ${escapeHtml(formatRelativeTime(sensor.lastSeenAt))}</p>
+      <div class="sensor-admin-main">
+        <strong class="sensor-admin-name">${escapeHtml(sensor.name)}</strong>
+        <span class="muted sensor-meta sensor-admin-device-id">${escapeHtml(sensor.deviceUid)}</span>
+        <span class="muted sensor-meta sensor-admin-detail">Sist sett ${escapeHtml(formatRelativeTime(sensor.lastSeenAt))}</span>
+        <span class="muted sensor-meta sensor-admin-detail">Firmware ${escapeHtml(sensor.firmwareVersion || "ukjent")} · ${escapeHtml(String(sensor.uploadIntervalMinutes || 60))} min</span>
       </div>
-      <button
-        class="ghost-button danger-button"
-        type="button"
-        data-delete-sensor-id="${escapeAttribute(sensor.id)}"
-      >${state.sensorDeletingId === sensor.id ? "Sletter..." : "Slett sensor"}</button>
+      <div class="sensor-admin-actions">
+        <span
+          class="availability-dot ${sensor.online ? "online" : "offline"}"
+          title="${escapeHtml(sensor.online ? "Online" : "Offline")}"
+          aria-label="${escapeHtml(sensor.online ? "Online" : "Offline")}"
+        >
+          <svg viewBox="0 0 24 24" class="availability-dot-icon" focusable="false" aria-hidden="true">
+            <path d="M12 18.2a1.8 1.8 0 1 0 0 3.6 1.8 1.8 0 0 0 0-3.6Zm-4.9-3.9a1 1 0 0 0 1.4 1.4 4.94 4.94 0 0 1 7 0 1 1 0 1 0 1.4-1.4 6.94 6.94 0 0 0-9.8 0Zm-3.8-3.8a1 1 0 0 0 1.4 1.4 10.31 10.31 0 0 1 14.6 0 1 1 0 0 0 1.4-1.4 12.31 12.31 0 0 0-17.4 0Z" />
+          </svg>
+        </span>
+        <button
+          class="ghost-button danger-button icon-button"
+          type="button"
+          data-delete-sensor-id="${escapeAttribute(sensor.id)}"
+          title="Slett sensor"
+          aria-label="Slett sensor"
+        >
+          <svg viewBox="0 0 24 24" class="icon-button-svg" focusable="false" aria-hidden="true">
+            <path d="M9 3.75A2.25 2.25 0 0 0 6.75 6H4.5a.75.75 0 0 0 0 1.5h.8l.88 10.46A2.25 2.25 0 0 0 8.42 20h7.16a2.25 2.25 0 0 0 2.24-2.04l.88-10.46h.8a.75.75 0 0 0 0-1.5h-2.25A2.25 2.25 0 0 0 15 3.75H9Zm0 1.5h6A.75.75 0 0 1 15.75 6h-7.5A.75.75 0 0 1 9 5.25Zm.34 4.4a.75.75 0 1 0-1.5.1l.4 6a.75.75 0 1 0 1.5-.1l-.4-6Zm6.32 0a.75.75 0 1 0-1.5-.1l-.4 6a.75.75 0 0 0 1.5.1l.4-6ZM12 9a.75.75 0 0 0-.75.75v6.5a.75.75 0 0 0 1.5 0v-6.5A.75.75 0 0 0 12 9Z" />
+          </svg>
+        </button>
+      </div>
     </article>
   `;
 }
@@ -855,8 +899,13 @@ async function deleteSensor(sensorId) {
     return;
   }
 
-  const confirmed = window.confirm("Vil du slette denne sensoren fra kontoen? Dette fjerner også lagrede målinger for sensoren.");
-  if (!confirmed) {
+  const initialConfirm = window.confirm("Vil du slette denne sensoren fra kontoen?");
+  if (!initialConfirm) {
+    return;
+  }
+
+  const finalConfirm = window.confirm("Er du helt sikker? Dette fjerner også alle lagrede målinger for sensoren.");
+  if (!finalConfirm) {
     return;
   }
 
