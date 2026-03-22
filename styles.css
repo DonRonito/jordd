@@ -325,9 +325,13 @@ button {
 }
 
 .main-content.landing-mode {
-  min-height: 100vh;
+  min-height: calc(100vh - 5rem);
   display: grid;
   place-items: center;
+}
+
+.main-content.landing-mode + .site-footer {
+  margin-top: 0.5rem;
 }
 
 .main-content.landing-mode .panel.view {
@@ -902,7 +906,7 @@ input:focus {
   }
 
   .main-content.landing-mode {
-    min-height: calc(100vh - 1.6rem);
+    min-height: calc(100vh - 4.6rem);
   }
 
   .topbar {
