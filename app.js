@@ -555,7 +555,7 @@ function renderAddSensor() {
       </section>
 
       <div class="button-row">
-        <button id="backToDashboardButton" class="ghost-button" type="button">Til oversikten</button>
+        <button id="backToDashboardButton" class="ghost-button" type="button">← Tilbake</button>
       </div>
     </section>
   `;
