@@ -118,12 +118,24 @@ a {
   display: flex;
   align-items: center;
   gap: 0.9rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
 .brand-mark {
   width: 3.25rem;
   height: 3.25rem;
   flex: 0 0 auto;
+}
+
+.brand:focus-visible {
+  outline: 2px solid rgba(255, 210, 142, 0.45);
+  outline-offset: 0.35rem;
+  border-radius: 1rem;
 }
 
 .topbar-actions {
@@ -233,6 +245,14 @@ button {
 .panel {
   padding: clamp(1.25rem, 2vw, 1.8rem);
   border-radius: calc(var(--radius) + 4px);
+}
+
+.panel.view.flat-view {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .hero-card {
@@ -583,6 +603,10 @@ input:focus {
   place-items: center;
   text-align: center;
   min-height: 14rem;
+}
+
+.empty-dashboard-title {
+  margin-bottom: 1rem;
 }
 
 @keyframes rise {

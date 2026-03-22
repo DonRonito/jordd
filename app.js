@@ -21,6 +21,7 @@ const state = {
   passwordSaving: false,
   claimCodeBusy: false,
   pollTimer: null,
+  messageTimer: null,
   message: "",
   messageKind: "info",
   authMode: "login",
@@ -28,6 +29,7 @@ const state = {
 
 const elements = {
   topbar: document.querySelector(".topbar"),
+  brandButton: document.querySelector("#brandButton"),
   mainContent: document.querySelector(".main-content"),
   pageTitle: document.querySelector("#pageTitle"),
   installButton: document.querySelector("#installButton"),
@@ -76,6 +78,14 @@ function bindEvents() {
       return;
     }
     navigateTo(button.dataset.route);
+  });
+
+  elements.brandButton?.addEventListener("click", () => {
+    if (state.session || state.sessionLoading) {
+      navigateTo("dashboard");
+      return;
+    }
+    navigateTo("", { replace: true });
   });
 }
 
@@ -159,7 +169,7 @@ function normalizeConfig(value) {
 
 function getConfigError(value) {
   if (!value.supabaseUrl || !value.supabaseAnonKey) {
-    return "Legg inn Supabase URL og anon key i config.js for a starte Jordd.";
+    return "Legg inn Supabase URL og anon key i config.js for å starte Jordd.";
   }
   return "";
 }
@@ -281,8 +291,11 @@ function render() {
 
 function renderHeader() {
   const showTopbar = Boolean(state.session) || state.sessionLoading;
+  const currentRoute = getRoute();
+  const flatView = Boolean(state.session) && ["dashboard", "account", "add-sensor"].includes(currentRoute);
   elements.topbar.classList.toggle("is-hidden", !showTopbar);
   elements.mainContent.classList.toggle("landing-mode", !showTopbar);
+  elements.appView.classList.toggle("flat-view", flatView);
   elements.pageTitle.textContent = "Jordd";
   const authenticated = Boolean(state.session);
   const showInstallButton = Boolean(state.installPromptEvent) && !isStandalone();
@@ -292,7 +305,6 @@ function renderHeader() {
   elements.installButton.onclick = state.installPromptEvent ? triggerInstallPrompt : null;
 
   if (authenticated) {
-    const currentRoute = getRoute();
     elements.primaryNav.hidden = false;
     elements.primaryNav.innerHTML = `
       <button data-route="dashboard" class="ghost-button" data-active="${String(currentRoute === "dashboard")}" type="button">Oversikt</button>
@@ -397,7 +409,7 @@ function renderLoginFields() {
 function renderRegisterFields() {
   return `
     <label class="field">
-      <span>Navn</span>
+      <span>Brukernavn</span>
       <input name="displayName" type="text" autocomplete="name" required />
     </label>
     <label class="field">
@@ -425,7 +437,7 @@ function renderDashboard() {
         <div class="split-head">
           <div>
             <p class="eyebrow">Oversikt</p>
-            <h3>${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen` : "Ingen sensorer på kontoen enda"}</h3>
+            <h3 class="${count ? "" : "empty-dashboard-title"}">${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen` : "Ingen sensorer på kontoen enda"}</h3>
           </div>
           <span class="muted">${state.dashboardLoading ? "Laster..." : "Direkte fra Jordd"}</span>
         </div>
@@ -443,7 +455,7 @@ function renderEmptySensors() {
   return `
     <article class="empty-state">
       <strong>Ingen sensorer er koblet til enda.</strong>
-      <p class="muted">Bruk knappen for a legge til sensor for a generere en claim code og onboarde den forste Jordd-sensoren din.</p>
+      <p class="muted">Bruk knappen for å legge til sensor for å generere en engangskode og onboarde den første Jordd-sensoren din.</p>
     </article>
   `;
 }
@@ -496,65 +508,49 @@ function renderAddSensorCard() {
 function renderAddSensor() {
   const dashboard = state.dashboard || { items: [], activeClaimCode: null };
   const claimCode = dashboard.activeClaimCode;
-  const deviceApiBase = state.config.deviceApiBase || state.config.supabaseUrl;
 
   elements.appView.innerHTML = `
     <section class="stack">
-      <div class="hero-card">
-        <p class="eyebrow">Onboarding</p>
-        <h2>Legg en Jordd-sensor til kontoen din</h2>
-        <p class="muted">
-          Generer en engangs claim code, ta skjermbilde av den, og koble deg deretter til sensorens setup-Wi-Fi for a legge inn hjemmenett og kode.
-        </p>
-        <div class="button-row">
-          <button id="createClaimCodeButton" class="primary-button" type="button">${state.claimCodeBusy ? "Lager kode..." : claimCode ? "Lag ny claim code" : "Generer claim code"}</button>
-          <button id="refreshSensorsButton" class="secondary-button" type="button">${state.dashboardLoading ? "Oppdaterer..." : "Sjekk etter ny sensor"}</button>
+      <div class="hero-card hero-grid">
+        <div class="compact-stack">
+          <p class="eyebrow">Onboarding</p>
+          <h2>Legg til Jordd-sensor</h2>
+          <p class="muted">
+            Generer en engangskode, ta skjermbilde av den, og koble deg deretter til sensorens setup-Wi-Fi for å legge inn hjemmenett og kode.
+          </p>
+          <div class="button-row">
+            <button id="createClaimCodeButton" class="primary-button" type="button">${state.claimCodeBusy ? "Lager kode..." : claimCode ? "Ny engangskode" : "Generer engangskode"}</button>
+          </div>
         </div>
-      </div>
 
-      <section class="grid two-up">
         <article class="card compact-stack">
-          <p class="eyebrow">Aktiv Claim Code</p>
+          <p class="eyebrow">Aktiv engangskode</p>
           ${
             claimCode
               ? `
                 <div class="claim-code-card">
                   <span class="claim-code">${escapeHtml(claimCode.code)}</span>
-                  <p class="muted">Utloper ${escapeHtml(formatDateTime(claimCode.expiresAt))}</p>
+                  <p class="muted">Utløper ${escapeHtml(formatDateTime(claimCode.expiresAt))}</p>
                 </div>
-                <p class="muted">Ta skjermbilde for du bytter Wi-Fi pa telefonen.</p>
+                <p class="muted">Ta skjermbilde før du bytter Wi-Fi på telefonen.</p>
               `
               : `
-                <p class="muted">Ingen aktiv code akkurat na. Generer en ny nar du er klar til a onboarde en sensor.</p>
+                <p class="muted">Ingen aktiv kode akkurat nå. Generer en ny når du er klar til å onboarde en sensor.</p>
               `
           }
         </article>
+      </div>
 
-        <article class="card compact-stack">
-          <p class="eyebrow">Jordd API</p>
-          <h3>${escapeHtml(deviceApiBase)}</h3>
-          <p class="muted">Skriv denne adressen i feltet «Jordd API» pa sensoren under setup.</p>
-        </article>
-      </section>
-
-      <section class="grid two-up">
+      <section>
         <article class="card">
           <p class="eyebrow">Steg For Steg</p>
           <ol class="steps">
-            <li>Trykk «Generer claim code» i Jordd.</li>
+            <li>Trykk «Ny engangskode».</li>
             <li>Ta skjermbilde av koden.</li>
-            <li>Skru pa sensoren og koble telefonen til dens setup-Wi-Fi.</li>
-            <li>Apne portal-siden pa sensoren, skriv inn hjemmets Wi-Fi-passord, claim code og Jordd API-adressen over.</li>
-            <li>Bytt tilbake til internett og trykk «Sjekk etter ny sensor».</li>
+            <li>Skru på sensoren og koble telefonen til dens setup-Wi-Fi.</li>
+            <li>Åpne portal-siden på sensoren og skriv inn hjemmets Wi-Fi-passord og engangskode.</li>
+            <li>Når sensoren er ferdig satt opp, dukker den opp automatisk på oversikten.</li>
           </ol>
-        </article>
-
-        <article class="card">
-          <p class="eyebrow">Sensorer Pa Kontoen</p>
-          <h3>${dashboard.items?.length || 0} registrert</h3>
-          <div class="device-grid">
-            ${dashboard.items?.length ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
-          </div>
         </article>
       </section>
 
@@ -565,9 +561,6 @@ function renderAddSensor() {
   `;
 
   elements.appView.querySelector("#createClaimCodeButton").addEventListener("click", createClaimCode);
-  elements.appView.querySelector("#refreshSensorsButton").addEventListener("click", async () => {
-    await loadDashboard({ successMessage: "Sensorlisten er oppdatert." });
-  });
   elements.appView.querySelector("#backToDashboardButton").addEventListener("click", () => navigateTo("dashboard"));
 }
 
@@ -641,7 +634,7 @@ function renderAccount() {
           ${sensors.length ? sensors.map(renderAccountSensorRow).join("") : `
             <article class="empty-state">
               <strong>Ingen sensorer på kontoen enda.</strong>
-              <p class="muted">Når du claimer en Jordd-sensor dukker den opp her og kan slettes manuelt ved behov.</p>
+              <p class="muted">Når du legger til en Jordd-sensor dukker den opp her og kan slettes manuelt ved behov.</p>
             </article>
           `}
         </div>
@@ -801,7 +794,7 @@ async function createClaimCode() {
     const response = await invokeFunction("app-claim-codes", {});
     state.dashboard = state.dashboard || { items: [] };
     state.dashboard.activeClaimCode = response.claimCode;
-    setMessage("Ny claim code generert. Ta skjermbilde for du bytter Wi-Fi.", "success");
+    setMessage("Ny engangskode generert. Ta skjermbilde før du bytter Wi-Fi.", "success");
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
@@ -949,8 +942,24 @@ async function safeJson(response) {
 }
 
 function setMessage(message, kind = "info") {
+  if (state.messageTimer) {
+    clearTimeout(state.messageTimer);
+    state.messageTimer = null;
+  }
   state.message = message;
   state.messageKind = kind;
+
+  if (!message) {
+    return;
+  }
+
+  const timeoutMs = kind === "error" ? 6000 : 4000;
+  state.messageTimer = window.setTimeout(() => {
+    state.message = "";
+    state.messageKind = "info";
+    state.messageTimer = null;
+    render();
+  }, timeoutMs);
 }
 
 async function triggerInstallPrompt() {
