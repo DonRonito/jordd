@@ -16,6 +16,9 @@ verify_jwt = false
 [functions.app-claim-codes]
 verify_jwt = false
 
+[functions.app-delete-sensor]
+verify_jwt = false
+
 [functions.device-claim]
 verify_jwt = false
 

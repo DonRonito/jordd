@@ -40,20 +40,23 @@ pio run --target upload
 - SSID: `Jordd-Setup-XXXX`
 - passord: `jorddsetup`
 
-## Jordd API
+## Setup-flyt
 
-I feltet `Jordd API` oppgir du normalt Supabase-prosjektets URL, for eksempel:
+Portalen viser nå:
 
-```text
-https://abc123.supabase.co
-```
+- en liste over funnede Wi-Fi-nett
+- manuelt SSID-felt som fallback
+- claim code-felt
+- skjult `Avansert`-seksjon for `Jordd API`
 
-Firmwareen bygger da selv videre til:
+Normalt trenger brukeren bare å:
 
-- `/functions/v1/device-claim`
-- `/functions/v1/device-readings`
+1. velge hjemmenettet sitt fra listen
+2. skrive inn Wi-Fi-passord
+3. lime inn claim code
+4. trykke `Koble til`
 
-Du kan også skrive inn en full functions-base direkte hvis du vil.
+`Jordd API` er forhåndsutfylt med Supabase-prosjektets URL og trenger normalt ikke endres.
 
 ## Factory reset
 

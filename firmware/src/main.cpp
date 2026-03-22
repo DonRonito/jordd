@@ -10,12 +10,13 @@
 #include <memory>
 
 #ifndef JORDD_API_BASE
-#define JORDD_API_BASE "https://jordd.com"
+#define JORDD_API_BASE "https://aaqrxluybkwgizrvappo.supabase.co"
 #endif
 
 namespace {
 constexpr char kPrefsNamespace[] = "jordd";
 constexpr char kApPassword[] = "jorddsetup";
+constexpr char kDefaultApiBase[] = JORDD_API_BASE;
 constexpr uint64_t kMicrosPerMinute = 60ULL * 1000ULL * 1000ULL;
 constexpr uint32_t kWifiConnectTimeoutMs = 20000;
 constexpr uint32_t kRetryDelayMs = 3000;
@@ -52,16 +53,16 @@ String normalizeApiBase(String value) {
     value.remove(value.length() - 1);
   }
   if (value.endsWith("/functions/v1")) {
-    return value;
+    value.remove(value.length() - String("/functions/v1").length());
   }
   if (!value.isEmpty()) {
-    return value + "/functions/v1";
+    return value;
   }
-  return String(JORDD_API_BASE) + "/functions/v1";
+  return String(kDefaultApiBase);
 }
 
 String functionEndpoint(const String& functionName) {
-  return normalizeApiBase(config.apiBase) + "/" + functionName;
+  return normalizeApiBase(config.apiBase) + "/functions/v1/" + functionName;
 }
 
 String chipIdSuffix() {
@@ -88,8 +89,19 @@ String htmlPage(const String& title, const String& content) {
              "border:none;border-radius:999px;background:#ffb44d;color:#102129;font-weight:700}"
              ".card{background:#12232d;border:1px solid #26414d;border-radius:24px;padding:20px}"
              ".ghost{background:#203744;color:#eef7f8}.actions{display:flex;gap:12px;flex-wrap:wrap}"
-             "p{line-height:1.5;color:#bdd1d8}h1,h2{line-height:1.1}</style></head><body><main>")) +
-         content + String(F("</main></body></html>"));
+             ".network-list{display:grid;gap:10px;margin:18px 0}.network-choice{text-align:left}"
+             ".hint{font-size:14px;color:#9fb8c0}.advanced{border-top:1px solid #26414d;padding-top:14px}"
+             "details summary{cursor:pointer;color:#eef7f8;font-weight:600}p{line-height:1.5;color:#bdd1d8}"
+             "h1,h2{line-height:1.1}</style></head><body><main>")) +
+         content +
+         String(F(
+             "<script>"
+             "document.querySelectorAll('[data-ssid]').forEach(function(button){"
+             "button.addEventListener('click', function(){"
+             "var target=document.getElementById('wifi_ssid');"
+             "if(target){target.value=this.dataset.ssid || '';target.focus();}"
+             "});});"
+             "</script></main></body></html>"));
 }
 
 String jsonEscape(const String& value) {
@@ -98,6 +110,16 @@ String jsonEscape(const String& value) {
   escaped.replace("\"", "\\\"");
   escaped.replace("\n", "\\n");
   escaped.replace("\r", "\\r");
+  return escaped;
+}
+
+String htmlEscape(const String& value) {
+  String escaped = value;
+  escaped.replace("&", "&amp;");
+  escaped.replace("<", "&lt;");
+  escaped.replace(">", "&gt;");
+  escaped.replace("\"", "&quot;");
+  escaped.replace("'", "&#39;");
   return escaped;
 }
 
@@ -167,7 +189,7 @@ void loadConfig() {
   config.claimCode = preferences.getString("claim_code", "");
   config.deviceToken = preferences.getString("device_token", "");
   config.sensorId = preferences.getString("sensor_id", "");
-  config.apiBase = normalizeApiBase(preferences.getString("api_base", JORDD_API_BASE));
+  config.apiBase = normalizeApiBase(preferences.getString("api_base", kDefaultApiBase));
   config.uploadIntervalMinutes = preferences.getUShort("upload_min", kDefaultUploadIntervalMinutes);
   config.deviceUid = chipIdSuffix();
   config.firmwareVersion = "jordd-factory-setup-0.2.0";
@@ -269,6 +291,30 @@ bool claimDevice(String* errorMessage = nullptr) {
 
   saveClaimResult(sensorId, deviceToken, uploadIntervalMinutes);
   return true;
+}
+
+String renderWifiScanResults() {
+  String markup = String(F("<div class='network-list'>"));
+  const int networkCount = WiFi.scanNetworks(false, true);
+  if (networkCount <= 0) {
+    markup += String(F("<p class='hint'>Fant ingen nett akkurat nå. Du kan fortsatt skrive SSID manuelt.</p>"));
+  } else {
+    for (int index = 0; index < networkCount; index++) {
+      const String ssid = WiFi.SSID(index);
+      if (ssid.isEmpty()) {
+        continue;
+      }
+      const String signal = String(WiFi.RSSI(index));
+      const bool encrypted = WiFi.encryptionType(index) != WIFI_AUTH_OPEN;
+      markup += String(F("<button class='ghost network-choice' type='button' data-ssid='")) + htmlEscape(ssid) +
+                String(F("'><strong>")) + htmlEscape(ssid) + String(F("</strong><br><span class='hint'>")) +
+                signal + String(F(" dBm")) + (encrypted ? String(F(" · sikret")) : String(F(" · åpent"))) +
+                String(F("</span></button>"));
+    }
+  }
+  WiFi.scanDelete();
+  markup += String(F("</div>"));
+  return markup;
 }
 
 uint16_t readBatteryMillivolts() {
@@ -387,13 +433,22 @@ void handlePortalRoot() {
   String content =
       String(F("<section class='card'><p>Jordd Setup</p><h1>Koble enheten til Wi-Fi</h1><p>"
                "Dette er en test-firmware for onboarding. Fyll inn hjemmets Wi-Fi og claim code fra Jordd-appen."
-               "</p><form method='post' action='/configure'>"
-               "<label>Wi-Fi navn (SSID)<input name='wifi_ssid' required></label>"
+               "</p><p>Velg gjerne nettverket ditt fra listen under, eller skriv inn SSID manuelt.</p>")) +
+      renderWifiScanResults() +
+      String(F("<div class='actions'><button class='ghost' type='button' onclick='location.href=\"/\"'>Søk på nytt</button></div>"
+               "<form method='post' action='/configure'>"
+               "<label>Wi-Fi navn (SSID)<input id='wifi_ssid' name='wifi_ssid' value='")) +
+      htmlEscape(config.wifiSsid) +
+      String(F("' required></label>"
                "<label>Wi-Fi passord<input name='wifi_password' type='password' required></label>"
-               "<label>Claim code<input name='claim_code' required></label>"
+               "<label>Claim code<input name='claim_code' value='")) +
+      htmlEscape(config.claimCode) +
+      String(F("' required></label>"
+               "<details class='advanced'><summary>Avansert</summary>"
                "<label>Jordd API<input name='api_base' value='")) +
-      config.apiBase +
-      String(F("'></label><p>Bruk Supabase-prosjektets URL eller en ferdig functions-base.</p><button type='submit'>Koble til</button></form>"
+      htmlEscape(config.apiBase.isEmpty() ? normalizeApiBase(kDefaultApiBase) : config.apiBase) +
+      String(F("'></label><p class='hint'>Trenger normalt ikke endres.</p></details>"
+               "<button type='submit'>Koble til</button></form>"
                "<div class='actions' style='margin-top:16px'>"
                "<form method='post' action='/reset'><button class='ghost' type='submit'>Factory reset</button></form>"
                "</div></section>"));
@@ -412,7 +467,7 @@ void handlePortalConfigure() {
   const String claimCode = portalServer.arg("claim_code");
   String apiBase = portalServer.arg("api_base");
   if (apiBase.isEmpty()) {
-    apiBase = JORDD_API_BASE;
+    apiBase = kDefaultApiBase;
   }
 
   if (wifiSsid.isEmpty() || wifiPassword.isEmpty() || claimCode.isEmpty()) {

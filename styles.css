@@ -410,6 +410,29 @@ input:focus {
   letter-spacing: 0.12em;
 }
 
+.sensor-admin-list {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.sensor-admin-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.danger-button {
+  background: rgba(255, 143, 135, 0.14);
+  color: var(--danger);
+  border: 1px solid rgba(255, 143, 135, 0.24);
+}
+
 .empty-state {
   display: grid;
   place-items: center;
@@ -436,6 +459,11 @@ input:focus {
   .device-grid,
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sensor-admin-item {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .topbar {

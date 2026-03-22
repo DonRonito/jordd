@@ -17,6 +17,7 @@ const state = {
   accountLoading: false,
   account: null,
   accountSaving: false,
+  sensorDeletingId: "",
   passwordSaving: false,
   claimCodeBusy: false,
   pollTimer: null,
@@ -572,8 +573,9 @@ function renderAddSensor() {
 }
 
 function renderAccount() {
-  const account = state.account || { user: state.session, stats: { sensorCount: state.dashboard?.items?.length || 0 } };
+  const account = state.account || { user: state.session, stats: { sensorCount: state.dashboard?.items?.length || 0 }, sensors: [] };
   const user = account.user || state.session;
+  const sensors = account.sensors?.length ? account.sensors : state.dashboard?.items || [];
 
   elements.appView.innerHTML = `
     <section class="stack">
@@ -624,12 +626,57 @@ function renderAccount() {
           <button id="logoutButton" class="ghost-button full-width" type="button">Logg ut</button>
         </article>
       </section>
+
+      <article class="card">
+        <div class="split-head">
+          <div>
+            <p class="eyebrow">Sensorer</p>
+            <h3>Administrer tilkoblede sensorer</h3>
+          </div>
+          <span class="muted">${escapeHtml(String(sensors.length))} registrert</span>
+        </div>
+        <div class="sensor-admin-list">
+          ${sensors.length ? sensors.map(renderAccountSensorRow).join("") : `
+            <article class="empty-state">
+              <strong>Ingen sensorer på kontoen enda.</strong>
+              <p class="muted">Når du claimer en Jordd-sensor dukker den opp her og kan slettes manuelt ved behov.</p>
+            </article>
+          `}
+        </div>
+      </article>
     </section>
   `;
 
   elements.appView.querySelector("#accountForm").addEventListener("submit", saveAccount);
   elements.appView.querySelector("#passwordForm").addEventListener("submit", changePassword);
   elements.appView.querySelector("#logoutButton").addEventListener("click", logout);
+  elements.appView.querySelectorAll("[data-delete-sensor-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await deleteSensor(button.dataset.deleteSensorId || "");
+    });
+  });
+}
+
+function renderAccountSensorRow(sensor) {
+  return `
+    <article class="sensor-admin-item">
+      <div class="compact-stack">
+        <div class="split-head">
+          <div>
+            <strong>${escapeHtml(sensor.name)}</strong>
+            <p class="muted">${escapeHtml(sensor.deviceUid)}</p>
+          </div>
+          <span class="availability ${sensor.online ? "online" : "offline"}">${escapeHtml(sensor.online ? "Online" : "Offline")}</span>
+        </div>
+        <p class="muted">Sist sett ${escapeHtml(formatRelativeTime(sensor.lastSeenAt))}</p>
+      </div>
+      <button
+        class="ghost-button danger-button"
+        type="button"
+        data-delete-sensor-id="${escapeAttribute(sensor.id)}"
+      >${state.sensorDeletingId === sensor.id ? "Sletter..." : "Slett sensor"}</button>
+    </article>
+  `;
 }
 
 async function handleLogin(event) {
@@ -792,6 +839,34 @@ async function changePassword(event) {
     setMessage(getErrorMessage(error), "error");
   } finally {
     state.passwordSaving = false;
+    render();
+  }
+}
+
+async function deleteSensor(sensorId) {
+  if (!sensorId || state.sensorDeletingId) {
+    return;
+  }
+
+  const confirmed = window.confirm("Vil du slette denne sensoren fra kontoen? Dette fjerner også lagrede målinger for sensoren.");
+  if (!confirmed) {
+    return;
+  }
+
+  state.sensorDeletingId = sensorId;
+  render();
+
+  try {
+    await invokeFunction("app-delete-sensor", { sensorId });
+    if (state.dashboard?.items) {
+      state.dashboard.items = state.dashboard.items.filter((item) => item.id !== sensorId);
+    }
+    await loadAccount({ silent: true });
+    setMessage("Sensor slettet.", "success");
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.sensorDeletingId = "";
     render();
   }
 }

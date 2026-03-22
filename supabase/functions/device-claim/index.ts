@@ -44,28 +44,36 @@ serve(async (req) => {
 
     const { data: existingSensor, error: existingError } = await admin
       .from("sensors")
-      .select("id, device_token, upload_interval_minutes")
+      .select("id, upload_interval_minutes")
       .eq("device_uid", deviceUid)
       .maybeSingle();
     if (existingError) {
       throw existingError;
-    }
-    if (existingSensor?.device_token) {
-      throw new HttpError("Denne sensoren er allerede claimed.", 409);
     }
 
     const deviceToken = crypto.randomUUID() + crypto.randomUUID();
     let sensorRecord = null;
 
     if (existingSensor) {
+      const defaultName = `Jordd Sensor ${deviceUid.slice(-4)}`;
+      const { error: deleteReadingsError } = await admin
+        .from("sensor_readings")
+        .delete()
+        .eq("sensor_id", existingSensor.id);
+      if (deleteReadingsError) {
+        throw deleteReadingsError;
+      }
+
       const { data, error } = await admin
         .from("sensors")
         .update({
           user_id: claimCode.user_id,
+          name: defaultName,
           firmware_version: firmwareVersion,
           capabilities,
           claimed_at: new Date().toISOString(),
           device_token: deviceToken,
+          last_seen_at: null,
         })
         .eq("id", existingSensor.id)
         .select("id, device_token, upload_interval_minutes")

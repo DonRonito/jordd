@@ -41,6 +41,7 @@ jobs:
           supabase functions deploy app-account --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy app-account-update --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy app-claim-codes --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy app-delete-sensor --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy device-claim --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy device-readings --project-ref "$SUPABASE_PROJECT_REF"
         env:

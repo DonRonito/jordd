@@ -36,6 +36,7 @@ Legg inn disse functionene i prosjektet ditt:
 - `app-account`
 - `app-account-update`
 - `app-claim-codes`
+- `app-delete-sensor`
 - `device-claim`
 - `device-readings`
 
@@ -48,6 +49,10 @@ Sett denne secret-en i Supabase:
 - `JORDD_INVITE_CODE=testpilot26`
 
 I [config.toml](/Users/htpc/Documents/GitHub/jordd/supabase/config.toml) er `auth-register`, `device-claim` og `device-readings` satt til `verify_jwt = false`.
+
+Kontosiden i PWA-en lar nå brukeren slette egne sensorer manuelt. Sletting fjerner også tilhørende readings via database-cascade.
+
+Når en fysisk sensor factory-resettes og claimes på nytt med samme `device_uid`, overføres den nå automatisk til den nye claimen. Tidligere readings for sensoren slettes, og sensoren forsvinner dermed fra forrige konto uten manuell opprydding.
 
 Repoet inneholder også en GitHub Actions-workflow for Supabase i:
 
