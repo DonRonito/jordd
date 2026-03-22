@@ -1,6 +1,13 @@
-const API_BASE = "/api";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const rawConfig = window.JORDD_CONFIG || {};
+const config = normalizeConfig(rawConfig);
 
 const state = {
+  supabase: null,
+  config,
+  configError: getConfigError(config),
+  accessToken: "",
   installPromptEvent: null,
   sessionLoading: true,
   authBusy: false,
@@ -73,9 +80,54 @@ async function bootstrap() {
   state.sessionLoading = true;
   render();
 
+  if (state.configError) {
+    state.sessionLoading = false;
+    render();
+    return;
+  }
+
+  state.supabase = createClient(state.config.supabaseUrl, state.config.supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  });
+
+  state.supabase.auth.onAuthStateChange(async (_event, session) => {
+    state.accessToken = session?.access_token || "";
+    state.session = mapUser(session?.user || null);
+
+    if (!state.session) {
+      stopPolling();
+      state.dashboard = null;
+      state.account = null;
+      if (getRoute() !== "landing") {
+        navigateTo("", { replace: true });
+      }
+      render();
+      return;
+    }
+
+    if (!location.hash) {
+      navigateTo("dashboard", { replace: true });
+    }
+    syncPolling();
+    render();
+  });
+
   try {
-    const response = await apiGet("/auth/session");
-    state.session = response.user || null;
+    const {
+      data: { session },
+      error,
+    } = await state.supabase.auth.getSession();
+
+    if (error) {
+      throw error;
+    }
+
+    state.session = mapUser(session?.user || null);
+    state.accessToken = session?.access_token || "";
     if (state.session) {
       if (!location.hash) {
         navigateTo("dashboard", { replace: true });
@@ -89,6 +141,41 @@ async function bootstrap() {
     syncPolling();
     render();
   }
+}
+
+function normalizeConfig(value) {
+  const supabaseUrl = String(value.supabaseUrl || "").trim().replace(/\/+$/, "");
+  const deviceApiBase = String(value.deviceApiBase || "").trim().replace(/\/+$/, "");
+  return {
+    supabaseUrl,
+    supabaseAnonKey: String(value.supabaseAnonKey || "").trim(),
+    inviteCode: String(value.inviteCode || "").trim(),
+    deviceApiBase: deviceApiBase || supabaseUrl,
+  };
+}
+
+function getConfigError(value) {
+  if (!value.supabaseUrl || !value.supabaseAnonKey) {
+    return "Legg inn Supabase URL og anon key i config.js for a starte Jordd.";
+  }
+  return "";
+}
+
+function mapUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  const displayName =
+    String(user.user_metadata?.display_name || "").trim() ||
+    String(user.email || "").split("@")[0] ||
+    "Jordd-bruker";
+
+  return {
+    id: user.id,
+    email: user.email || "",
+    displayName,
+  };
 }
 
 function getRoute() {
@@ -114,7 +201,7 @@ function navigateTo(route, options = {}) {
 }
 
 async function loadRouteData(options = {}) {
-  if (!state.session) {
+  if (!state.session || !state.supabase) {
     return;
   }
 
@@ -153,43 +240,44 @@ function render() {
   renderMessage();
 
   if (state.sessionLoading) {
-    elements.pageTitle.textContent = "Starter Jordd";
     elements.appView.innerHTML = `
       <section class="stack">
         <div class="hero-card">
           <p class="eyebrow">Starter</p>
-          <h2>Laster skyplattformen…</h2>
-          <p class="muted">Jordd gjør klart konto, sensorer og onboardingflyt.</p>
+          <h2>Laster Jordd…</h2>
+          <p class="muted">Kobler til konto, sensorer og onboardingflyt.</p>
         </div>
       </section>
     `;
     return;
   }
 
+  if (state.configError) {
+    renderConfigSetup();
+    return;
+  }
+
   if (!state.session) {
-    elements.pageTitle.textContent = "ESP32-sensorer direkte til jordd.com";
     renderLanding();
     return;
   }
 
   const route = getRoute();
   if (route === "account") {
-    elements.pageTitle.textContent = "Konto";
     renderAccount();
     return;
   }
 
   if (route === "add-sensor") {
-    elements.pageTitle.textContent = "Legg til sensor";
     renderAddSensor();
     return;
   }
 
-  elements.pageTitle.textContent = "Sensorer";
   renderDashboard();
 }
 
 function renderHeader() {
+  elements.pageTitle.textContent = "Jordd";
   const authenticated = Boolean(state.session);
   const showInstallButton = Boolean(state.installPromptEvent) && !isStandalone();
 
@@ -224,51 +312,37 @@ function renderMessage() {
   elements.appMessage.className = `inline-feedback global-message ${state.messageKind}`;
 }
 
-function renderLanding() {
-  const install = getInstallInstructions();
-  const loginActive = state.authMode === "login";
-
+function renderConfigSetup() {
   elements.appView.innerHTML = `
-    <section class="stack">
-      <div class="hero-card compact-stack">
-        <p class="eyebrow">Kom I Gang</p>
-        <h2>Logg inn og legg til ESP32-sensorer med claim code</h2>
-        <p class="muted">
-          Jordd kobler batteridrevne sensorer direkte til kontoen din. Sensoren settes opp via sitt eget Wi-Fi,
-          får hjemmenett og claim code, og sender deretter målinger til jordd.com.
-        </p>
-        <ul class="helper-list">
-          <li>Opprett konto eller logg inn.</li>
-          <li>Generer claim code i appen.</li>
-          <li>Koble telefonen til sensorens setup-Wi-Fi og fyll inn kode + Wi-Fi-passord.</li>
-        </ul>
-        <p class="muted"><strong>Demo:</strong> brukernavn <code>test</code> og passord <code>test</code>.</p>
-        <p class="muted">${escapeHtml(install.lead)}</p>
+    <section class="auth-shell">
+      <article class="card compact-stack">
+        <h2>Koble til Supabase</h2>
+        <p class="muted">${escapeHtml(state.configError)}</p>
+        <p class="muted">Kopier <code>config.example.js</code> til <code>config.js</code> og fyll inn prosjektverdiene dine.</p>
+      </article>
+    </section>
+  `;
+}
+
+function renderLanding() {
+  const registerMode = state.authMode === "register";
+  elements.appView.innerHTML = `
+    <section class="auth-shell">
+      <article class="card compact-stack">
+        <h2>${registerMode ? "Opprett konto" : "Logg inn"}</h2>
+
+        <form id="${registerMode ? "registerForm" : "loginForm"}" class="stack">
+          ${registerMode ? renderRegisterFields() : renderLoginFields()}
+          <button class="primary-button" type="submit">${state.authBusy ? "Jobber..." : registerMode ? "Opprett konto" : "Logg inn"}</button>
+        </form>
+
         <div class="button-row">
-          ${state.installPromptEvent ? '<button id="landingInstallButton" class="primary-button" type="button">Installer PWA</button>' : ""}
-          <button id="showRegisterButton" class="secondary-button" type="button">Opprett konto</button>
+          <button id="${registerMode ? "showLoginButton" : "showRegisterButton"}" class="ghost-button" type="button">
+            ${registerMode ? "Tilbake til login" : "Opprett konto med kode"}
+          </button>
+          ${state.installPromptEvent ? '<button id="landingInstallButton" class="secondary-button" type="button">Installer PWA</button>' : ""}
         </div>
-      </div>
-
-      <section class="auth-shell">
-        <article class="card">
-          <div class="split-head">
-            <div>
-              <p class="eyebrow">Autentisering</p>
-              <h3>${loginActive ? "Logg inn" : "Opprett konto"}</h3>
-            </div>
-            <div class="tab-row">
-              <button id="loginTabButton" class="${loginActive ? "tab-button active" : "tab-button"}" type="button">Login</button>
-              <button id="registerTabButton" class="${!loginActive ? "tab-button active" : "tab-button"}" type="button">Register</button>
-            </div>
-          </div>
-
-          <form id="${loginActive ? "loginForm" : "registerForm"}" class="stack">
-            ${loginActive ? renderLoginFields() : renderRegisterFields()}
-            <button class="primary-button" type="submit">${state.authBusy ? "Jobber…" : loginActive ? "Logg inn" : "Opprett konto"}</button>
-          </form>
-        </article>
-      </section>
+      </article>
     </section>
   `;
 
@@ -276,34 +350,27 @@ function renderLanding() {
   if (installButton) {
     installButton.addEventListener("click", triggerInstallPrompt);
   }
+  if (registerMode) {
+    elements.appView.querySelector("#showLoginButton").addEventListener("click", () => {
+      state.authMode = "login";
+      render();
+    });
+    elements.appView.querySelector("#registerForm").addEventListener("submit", handleRegister);
+    return;
+  }
+
   elements.appView.querySelector("#showRegisterButton").addEventListener("click", () => {
     state.authMode = "register";
     render();
   });
-  elements.appView.querySelector("#loginTabButton").addEventListener("click", () => {
-    state.authMode = "login";
-    render();
-  });
-  elements.appView.querySelector("#registerTabButton").addEventListener("click", () => {
-    state.authMode = "register";
-    render();
-  });
-
-  const loginForm = elements.appView.querySelector("#loginForm");
-  const registerForm = elements.appView.querySelector("#registerForm");
-  if (loginForm) {
-    loginForm.addEventListener("submit", handleLogin);
-  }
-  if (registerForm) {
-    registerForm.addEventListener("submit", handleRegister);
-  }
+  elements.appView.querySelector("#loginForm").addEventListener("submit", handleLogin);
 }
 
 function renderLoginFields() {
   return `
     <label class="field">
-      <span>E-post eller brukernavn</span>
-      <input name="email" type="text" autocomplete="username" required />
+      <span>E-post</span>
+      <input name="email" type="email" autocomplete="username" required />
     </label>
     <label class="field">
       <span>Passord</span>
@@ -326,6 +393,10 @@ function renderRegisterFields() {
       <span>Passord</span>
       <input name="password" type="password" autocomplete="new-password" minlength="8" required />
     </label>
+    <label class="field">
+      <span>Pilotkode</span>
+      <input name="inviteCode" type="text" autocomplete="off" required />
+    </label>
   `;
 }
 
@@ -338,12 +409,12 @@ function renderDashboard() {
       <div class="hero-card hero-grid">
         <div class="compact-stack">
           <p class="eyebrow">Dashboard</p>
-          <h2>${count ? `${count} sensor${count === 1 ? "" : "er"} på kontoen din` : "Ingen sensorer enda"}</h2>
+          <h2>${count ? `${count} sensor${count === 1 ? "" : "er"} pa kontoen din` : "Ingen sensorer enda"}</h2>
           <p class="muted">
             Sensorene dine sender siste temperatur, luftfuktighet og batteristatus direkte til Jordd.
           </p>
           <div class="button-row">
-            <button id="dashboardRefreshButton" class="primary-button" type="button">${state.dashboardLoading ? "Oppdaterer…" : "Oppdater nå"}</button>
+            <button id="dashboardRefreshButton" class="primary-button" type="button">${state.dashboardLoading ? "Oppdaterer..." : "Oppdater na"}</button>
             <button id="dashboardAddSensorButton" class="secondary-button" type="button">Legg til sensor</button>
           </div>
         </div>
@@ -352,7 +423,7 @@ function renderDashboard() {
           <p class="eyebrow">Konto</p>
           <h3>${escapeHtml(state.session.displayName)}</h3>
           <p class="muted">${escapeHtml(state.session.email)}</p>
-          <p class="muted">Sensorer blir markert offline når de ikke har sendt data på over to rapporteringsintervaller.</p>
+          <p class="muted">Sensorer markeres offline nar de ikke har sendt data pa over to rapporteringsintervaller.</p>
         </article>
       </div>
 
@@ -362,7 +433,7 @@ function renderDashboard() {
             <p class="eyebrow">Sensorer</p>
             <h3>Latest reading cards</h3>
           </div>
-          <span class="muted">${state.dashboardLoading ? "Laster…" : "Direkte fra Jordd backend"}</span>
+          <span class="muted">${state.dashboardLoading ? "Laster..." : "Direkte fra Supabase"}</span>
         </div>
         <div class="device-grid">
           ${count ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
@@ -381,7 +452,7 @@ function renderEmptySensors() {
   return `
     <article class="empty-state">
       <strong>Ingen sensorer er koblet til enda.</strong>
-      <p class="muted">Gå til «Legg til» for å generere en claim code og onboarde den første ESP32-sensoren din.</p>
+      <p class="muted">Ga til «Legg til» for a generere en claim code og onboarde den forste Jordd-sensoren din.</p>
     </article>
   `;
 }
@@ -425,18 +496,19 @@ function renderSensorCard(sensor) {
 function renderAddSensor() {
   const dashboard = state.dashboard || { items: [], activeClaimCode: null };
   const claimCode = dashboard.activeClaimCode;
+  const deviceApiBase = state.config.deviceApiBase || state.config.supabaseUrl;
 
   elements.appView.innerHTML = `
     <section class="stack">
       <div class="hero-card">
         <p class="eyebrow">Onboarding</p>
-        <h2>Legg en ESP32-sensor til kontoen din</h2>
+        <h2>Legg en Jordd-sensor til kontoen din</h2>
         <p class="muted">
-          Generer en engangs claim code, ta skjermbilde av den, og koble deg deretter til sensorens setup-Wi-Fi for å legge inn hjemmenett og code.
+          Generer en engangs claim code, ta skjermbilde av den, og koble deg deretter til sensorens setup-Wi-Fi for a legge inn hjemmenett og kode.
         </p>
         <div class="button-row">
-          <button id="createClaimCodeButton" class="primary-button" type="button">${state.claimCodeBusy ? "Lager code…" : claimCode ? "Lag ny claim code" : "Generer claim code"}</button>
-          <button id="refreshSensorsButton" class="secondary-button" type="button">${state.dashboardLoading ? "Oppdaterer…" : "Sjekk etter ny sensor"}</button>
+          <button id="createClaimCodeButton" class="primary-button" type="button">${state.claimCodeBusy ? "Lager kode..." : claimCode ? "Lag ny claim code" : "Generer claim code"}</button>
+          <button id="refreshSensorsButton" class="secondary-button" type="button">${state.dashboardLoading ? "Oppdaterer..." : "Sjekk etter ny sensor"}</button>
         </div>
       </div>
 
@@ -448,40 +520,47 @@ function renderAddSensor() {
               ? `
                 <div class="claim-code-card">
                   <span class="claim-code">${escapeHtml(claimCode.code)}</span>
-                  <p class="muted">Utløper ${escapeHtml(formatDateTime(claimCode.expiresAt))}</p>
+                  <p class="muted">Utloper ${escapeHtml(formatDateTime(claimCode.expiresAt))}</p>
                 </div>
-                <p class="muted">Ta skjermbilde før du bytter Wi-Fi på telefonen.</p>
+                <p class="muted">Ta skjermbilde for du bytter Wi-Fi pa telefonen.</p>
               `
               : `
-                <p class="muted">Ingen aktiv code akkurat nå. Generer en ny når du er klar til å onboarde en sensor.</p>
+                <p class="muted">Ingen aktiv code akkurat na. Generer en ny nar du er klar til a onboarde en sensor.</p>
               `
           }
         </article>
 
+        <article class="card compact-stack">
+          <p class="eyebrow">Jordd API</p>
+          <h3>${escapeHtml(deviceApiBase)}</h3>
+          <p class="muted">Skriv denne adressen i feltet «Jordd API» pa sensoren under setup.</p>
+        </article>
+      </section>
+
+      <section class="grid two-up">
         <article class="card">
           <p class="eyebrow">Steg For Steg</p>
           <ol class="steps">
             <li>Trykk «Generer claim code» i Jordd.</li>
             <li>Ta skjermbilde av koden.</li>
-            <li>Skru på sensoren og koble telefonen til dens setup-Wi-Fi.</li>
-            <li>Åpne portal-siden på sensoren, skriv inn hjemmets Wi-Fi-passord og claim code.</li>
+            <li>Skru pa sensoren og koble telefonen til dens setup-Wi-Fi.</li>
+            <li>Apne portal-siden pa sensoren, skriv inn hjemmets Wi-Fi-passord, claim code og Jordd API-adressen over.</li>
             <li>Bytt tilbake til internett og trykk «Sjekk etter ny sensor».</li>
           </ol>
         </article>
+
+        <article class="card">
+          <p class="eyebrow">Sensorer Pa Kontoen</p>
+          <h3>${dashboard.items?.length || 0} registrert</h3>
+          <div class="device-grid">
+            ${dashboard.items?.length ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
+          </div>
+        </article>
       </section>
 
-      <article class="card">
-        <div class="split-head">
-          <div>
-            <p class="eyebrow">Sensorer På Kontoen</p>
-            <h3>${dashboard.items?.length || 0} registrert</h3>
-          </div>
-          <button id="backToDashboardButton" class="ghost-button" type="button">Til oversikten</button>
-        </div>
-        <div class="device-grid">
-          ${dashboard.items?.length ? dashboard.items.map(renderSensorCard).join("") : renderEmptySensors()}
-        </div>
-      </article>
+      <div class="button-row">
+        <button id="backToDashboardButton" class="ghost-button" type="button">Til oversikten</button>
+      </div>
     </section>
   `;
 
@@ -507,7 +586,7 @@ function renderAccount() {
         <article class="card compact-stack">
           <p class="eyebrow">Status</p>
           <h3>${escapeHtml(String(account.stats?.sensorCount || 0))} sensorer</h3>
-          <p class="muted">Denne siden lar deg oppdatere navn, e-post og passord uten å forlate PWA-en.</p>
+          <p class="muted">Denne siden lar deg oppdatere navn, e-post og passord uten a forlate PWA-en.</p>
         </article>
       </div>
 
@@ -524,7 +603,7 @@ function renderAccount() {
               <span>E-post</span>
               <input name="email" type="email" value="${escapeAttribute(user.email || "")}" required />
             </label>
-            <button class="primary-button" type="submit">${state.accountSaving ? "Lagrer…" : "Lagre konto"}</button>
+            <button class="primary-button" type="submit">${state.accountSaving ? "Lagrer..." : "Lagre konto"}</button>
           </form>
         </article>
 
@@ -533,14 +612,14 @@ function renderAccount() {
           <h3>Endre passord</h3>
           <form id="passwordForm" class="stack">
             <label class="field">
-              <span>Nåværende passord</span>
+              <span>Navaerende passord</span>
               <input name="currentPassword" type="password" autocomplete="current-password" required />
             </label>
             <label class="field">
               <span>Nytt passord</span>
               <input name="newPassword" type="password" autocomplete="new-password" minlength="8" required />
             </label>
-            <button class="secondary-button" type="submit">${state.passwordSaving ? "Oppdaterer…" : "Bytt passord"}</button>
+            <button class="secondary-button" type="submit">${state.passwordSaving ? "Oppdaterer..." : "Bytt passord"}</button>
           </form>
           <button id="logoutButton" class="ghost-button full-width" type="button">Logg ut</button>
         </article>
@@ -556,30 +635,57 @@ function renderAccount() {
 async function handleLogin(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  await authenticate("/auth/login", {
-    email: String(formData.get("email") || "").trim(),
-    password: String(formData.get("password") || ""),
-  });
+  const email = String(formData.get("email") || "").trim();
+  const password = String(formData.get("password") || "");
+
+  state.authBusy = true;
+  render();
+
+  try {
+    const { data, error } = await state.supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      throw error;
+    }
+    state.accessToken = data.session?.access_token || "";
+    state.session = mapUser(data.user);
+    setMessage("Innlogging vellykket.", "success");
+    navigateTo("dashboard", { replace: true });
+    await loadDashboard({ silent: true });
+  } catch (error) {
+    setMessage(getErrorMessage(error), "error");
+  } finally {
+    state.authBusy = false;
+    syncPolling();
+    render();
+  }
 }
 
 async function handleRegister(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  await authenticate("/auth/register", {
+  const payload = {
     displayName: String(formData.get("displayName") || "").trim(),
     email: String(formData.get("email") || "").trim(),
     password: String(formData.get("password") || ""),
-  });
-}
+    inviteCode: String(formData.get("inviteCode") || "").trim(),
+  };
 
-async function authenticate(path, payload) {
   state.authBusy = true;
   render();
 
   try {
-    const response = await apiPost(path, payload);
-    state.session = response.user;
-    setMessage(path.endsWith("register") ? "Konto opprettet." : "Innlogging vellykket.", "success");
+    await invokeFunction("auth-register", payload, { requireAuth: false });
+    const { data, error } = await state.supabase.auth.signInWithPassword({
+      email: payload.email,
+      password: payload.password,
+    });
+    if (error) {
+      throw error;
+    }
+    state.accessToken = data.session?.access_token || "";
+    state.session = mapUser(data.user);
+    state.authMode = "login";
+    setMessage("Konto opprettet.", "success");
     navigateTo("dashboard", { replace: true });
     await loadDashboard({ silent: true });
   } catch (error) {
@@ -598,7 +704,7 @@ async function loadDashboard(options = {}) {
   }
 
   try {
-    state.dashboard = await apiGet("/app/dashboard");
+    state.dashboard = await invokeFunction("app-dashboard", {});
     if (options.successMessage) {
       setMessage(options.successMessage, "success");
     }
@@ -617,7 +723,7 @@ async function loadAccount(options = {}) {
   }
 
   try {
-    state.account = await apiGet("/app/account");
+    state.account = await invokeFunction("app-account", {});
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
@@ -631,10 +737,10 @@ async function createClaimCode() {
   render();
 
   try {
-    const response = await apiPost("/app/claim-codes", {});
+    const response = await invokeFunction("app-claim-codes", {});
     state.dashboard = state.dashboard || { items: [] };
     state.dashboard.activeClaimCode = response.claimCode;
-    setMessage("Ny claim code generert. Ta skjermbilde før du bytter Wi-Fi.", "success");
+    setMessage("Ny claim code generert. Ta skjermbilde for du bytter Wi-Fi.", "success");
   } catch (error) {
     setMessage(getErrorMessage(error), "error");
   } finally {
@@ -650,7 +756,7 @@ async function saveAccount(event) {
   render();
 
   try {
-    const response = await apiPatch("/app/account", {
+    const response = await invokeFunction("app-account-update", {
       displayName: String(formData.get("displayName") || "").trim(),
       email: String(formData.get("email") || "").trim(),
     });
@@ -676,7 +782,7 @@ async function changePassword(event) {
   render();
 
   try {
-    await apiPost("/auth/change-password", {
+    await invokeFunction("auth-change-password", {
       currentPassword: String(formData.get("currentPassword") || ""),
       newPassword: String(formData.get("newPassword") || ""),
     });
@@ -692,12 +798,13 @@ async function changePassword(event) {
 
 async function logout() {
   try {
-    await apiPost("/auth/logout", {});
+    await state.supabase.auth.signOut();
   } catch {
     // Best effort logout.
   }
   stopPolling();
   state.session = null;
+  state.accessToken = "";
   state.dashboard = null;
   state.account = null;
   setMessage("Du er logget ut.", "info");
@@ -705,43 +812,42 @@ async function logout() {
   render();
 }
 
-async function apiGet(path) {
-  return apiRequest(path, { method: "GET" });
-}
+async function invokeFunction(name, payload, options = {}) {
+  if (!state.supabase) {
+    throw new Error("Supabase er ikke konfigurert.");
+  }
 
-async function apiPost(path, body) {
-  return apiRequest(path, {
+  const headers = {
+    "Content-Type": "application/json",
+    apikey: state.config.supabaseAnonKey,
+  };
+  const accessToken = state.accessToken;
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+  if (options.requireAuth !== false && !accessToken) {
+    throw new Error("Du må logge inn for å fortsette.");
+  }
+
+  const response = await fetch(`${state.config.supabaseUrl}/functions/v1/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-async function apiPatch(path, body) {
-  return apiRequest(path, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
-
-async function apiRequest(path, options) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    credentials: "same-origin",
-    headers: {
-      Accept: "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
+    body: JSON.stringify(payload || {}),
     cache: "no-store",
   });
-
   const data = await safeJson(response);
   if (!response.ok) {
-    const error = new Error(data?.error || `Request feilet med ${response.status}`);
+    const error = new Error(data?.error || `Edge Function returned ${response.status}`);
     error.payload = data;
     throw error;
   }
+
+  if (data?.error) {
+    const wrapped = new Error(data.error);
+    wrapped.payload = data;
+    throw wrapped;
+  }
+
   return data;
 }
 
@@ -767,28 +873,6 @@ async function triggerInstallPrompt() {
   await installPrompt.userChoice;
   state.installPromptEvent = null;
   render();
-}
-
-function getInstallInstructions() {
-  const userAgent = navigator.userAgent.toLowerCase();
-
-  if (/iphone|ipad|ipod/.test(userAgent)) {
-    return {
-      lead: "Åpne jordd.com i Safari og velg «Legg til på Hjem-skjerm» før du begynner å onboarde sensorer.",
-    };
-  }
-
-  if (/android/.test(userAgent)) {
-    return {
-      lead: state.installPromptEvent
-        ? "Installer PWA-en med knappen over før du begynner å bytte mellom internett og sensorens setup-Wi-Fi."
-        : "Bruk Chrome eller Edge og installer appen fra adressefeltet for den enkleste onboardingflyten.",
-    };
-  }
-
-  return {
-    lead: "Installer Jordd som skrivebords- eller mobilapp for å ha claim code og instruksjoner lett tilgjengelig under onboarding.",
-  };
 }
 
 function isStandalone() {
@@ -854,10 +938,10 @@ function formatRelativeTime(value) {
 }
 
 function getErrorMessage(error) {
-  if (error?.payload?.error) {
-    return error.payload.error;
+  if (error?.context?.json?.error) {
+    return error.context.json.error;
   }
-  if (error instanceof Error) {
+  if (error?.message) {
     return error.message;
   }
   return "Noe gikk galt.";

@@ -40,6 +40,21 @@ pio run --target upload
 - SSID: `Jordd-Setup-XXXX`
 - passord: `jorddsetup`
 
+## Jordd API
+
+I feltet `Jordd API` oppgir du normalt Supabase-prosjektets URL, for eksempel:
+
+```text
+https://abc123.supabase.co
+```
+
+Firmwareen bygger da selv videre til:
+
+- `/functions/v1/device-claim`
+- `/functions/v1/device-readings`
+
+Du kan også skrive inn en full functions-base direkte hvis du vil.
+
 ## Factory reset
 
 Du har tre måter å slette all lagret config på:

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Jordd er en PWA for batteridrevne ESP32-sensorer som snakker direkte med jordd.com."
+      content="Jordd er en PWA for batteridrevne Jordd-sensorer som snakker direkte med jordd.com."
     />
     <meta name="theme-color" content="#11353e" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -19,9 +19,9 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
-          <p class="eyebrow">Jordd Cloud</p>
-          <h1 id="pageTitle">ESP32-sensorer direkte til jordd.com</h1>
+        <div class="brand">
+          <img class="brand-mark" src="/icons/icon.svg" alt="Jordd" />
+          <h1 id="pageTitle">Jordd</h1>
         </div>
         <div class="topbar-actions">
           <button id="installButton" class="secondary-button" type="button" hidden>Installer</button>
@@ -35,6 +35,7 @@
       </main>
     </div>
 
+    <script src="/config.js"></script>
     <script src="/app.js" type="module"></script>
   </body>
 </html>

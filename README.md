@@ -1,14 +1,21 @@
-# Jordd v3
+# Jordd
 
-Jordd er nå en PWA og sky-orientert sensorplattform for batteridrevne ESP32-sensorer som snakker direkte med `jordd.com`.
+Jordd er nå satt opp som en statisk PWA med:
 
-Denne repo-versjonen inneholder:
-
-- en lokal dev-server for kontoer, sessions, claim codes, sensorer og readings
-- en statisk PWA med login, dashboard, add-sensor-flyt og kontoside
-- en første factory firmware-mal for ESP32 med captive portal, claiming og deep sleep
+- frontend som snakker direkte med Supabase Auth og Edge Functions
+- Postgres-datamodell for brukere, sensorer, claim codes og readings
+- ESP32 factory firmware med captive portal, claiming og deep sleep
 
 ## Lokal kjøring
+
+1. Opprett et Supabase-prosjekt.
+2. Kjør SQL-en i [schema.sql](/Users/htpc/Documents/GitHub/jordd/supabase/schema.sql) i Supabase SQL Editor, eller bruk migration-filen i [20260322130000_init.sql](/Users/htpc/Documents/GitHub/jordd/supabase/migrations/20260322130000_init.sql).
+3. Kopier [config.example.js](/Users/htpc/Documents/GitHub/jordd/config.example.js) til `config.js`.
+4. Fyll inn:
+   - `supabaseUrl`
+   - `supabaseAnonKey`
+   - eventuelt `deviceApiBase` hvis du vil overstyre standarden
+5. Start lokal statisk server:
 
 ```bash
 cd /Users/htpc/Documents/GitHub/jordd
@@ -19,46 +26,60 @@ python3 server.py
 
 - `http://localhost:8090`
 
-## V1-flyt
+## Supabase Functions
 
-1. Opprett konto eller logg inn i Jordd.
-2. Generer en claim code i `Legg til`.
-3. Koble telefonen til sensorens setup-Wi-Fi.
-4. Fyll inn hjemmets Wi-Fi og claim code i sensorens captive portal.
-5. Gå tilbake til Jordd og oppdater dashboardet.
+Legg inn disse functionene i prosjektet ditt:
 
-## Demo-konto
+- `auth-register`
+- `auth-change-password`
+- `app-dashboard`
+- `app-account`
+- `app-account-update`
+- `app-claim-codes`
+- `device-claim`
+- `device-readings`
 
-Dev-serveren seeder automatisk en demo-konto med tre sensorer:
+Function-kode ligger i:
 
-- brukernavn: `test`
-- passord: `test`
+- [supabase/functions](/Users/htpc/Documents/GitHub/jordd/supabase/functions)
 
-## API-er i dev-serveren
+Sett denne secret-en i Supabase:
 
-- `GET /api/auth/session`
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `POST /api/auth/change-password`
-- `GET /api/app/dashboard`
-- `POST /api/app/claim-codes`
-- `GET /api/app/account`
-- `PATCH /api/app/account`
-- `POST /api/device/claim`
-- `POST /api/device/readings`
+- `JORDD_INVITE_CODE=testpilot26`
 
-## Datamodell
+I [config.toml](/Users/htpc/Documents/GitHub/jordd/supabase/config.toml) er `auth-register`, `device-claim` og `device-readings` satt til `verify_jwt = false`.
 
-Dev-serveren lagrer data i `jordd-data.json` med disse hovedsamlingene:
+Repoet inneholder også en GitHub Actions-workflow for Supabase i:
 
-- `users`
-- `sessions`
-- `sensors`
-- `sensor_readings`
-- `sensor_claim_codes`
+- [.github/workflows/deploy-supabase.yml](/Users/htpc/Documents/GitHub/jordd/.github/workflows/deploy-supabase.yml)
 
-Dette speiler modellen som senere kan flyttes til Supabase/Postgres i produksjon.
+Denne krever GitHub-secrets:
+
+- `SUPABASE_ACCESS_TOKEN`
+- `SUPABASE_PROJECT_REF`
+
+## GitHub Pages
+
+Repoet inneholder en Pages-workflow i:
+
+- [.github/workflows/deploy-pages.yml](/Users/htpc/Documents/GitHub/jordd/.github/workflows/deploy-pages.yml)
+
+For at deployen skal fungere må du legge inn disse GitHub-secrets:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `JORDD_DEVICE_API_BASE`
+
+`JORDD_DEVICE_API_BASE` kan normalt være samme verdi som `SUPABASE_URL`.
+
+Workflowen genererer:
+
+- `config.js` med produksjonsverdier
+- `CNAME` for `jordd.com`
+
+## Domain
+
+Når GitHub Pages er aktivert for repoet, peker du `jordd.com` til GitHub Pages i DNS hos domeneregistraren din. Deretter lar du sensorene bruke Supabase-prosjektets URL i feltet `Jordd API`.
 
 ## Firmware
 
@@ -68,16 +89,4 @@ Factory firmware ligger i:
 - [main.cpp](/Users/htpc/Documents/GitHub/jordd/firmware/src/main.cpp)
 - [firmware/README.md](/Users/htpc/Documents/GitHub/jordd/firmware/README.md)
 
-Firmwareen er satt opp for:
-
-- ESP32
-- captive portal over sensorens eget Wi-Fi
-- claim mot Jordd over HTTPS
-- deep sleep mellom opplastinger
-- factory reset via serial, BOOT-knapp eller portal
-
-Denne firmware-varianten er en ren setup-/test-build uten sensordrivere, slik at onboardingflyten kan verifiseres før faktiske sensorer legges til.
-
-## Viktig om produksjon
-
-Planen peker mot Supabase for auth og database på `jordd.com`, men denne repo-implementasjonen bruker en dependency-fri lokal Python-server for å gjøre hele flyten kjørbar og testbar uten ekstern infrastruktur.
+Firmwareen forventer nå at `Jordd API` peker til Supabase-prosjektets URL. Den bygger selv videre til `/functions/v1/device-claim` og `/functions/v1/device-readings`.

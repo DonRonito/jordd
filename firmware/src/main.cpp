@@ -46,6 +46,24 @@ struct DeviceConfig {
 
 DeviceConfig config;
 
+String normalizeApiBase(String value) {
+  value.trim();
+  while (value.endsWith("/")) {
+    value.remove(value.length() - 1);
+  }
+  if (value.endsWith("/functions/v1")) {
+    return value;
+  }
+  if (!value.isEmpty()) {
+    return value + "/functions/v1";
+  }
+  return String(JORDD_API_BASE) + "/functions/v1";
+}
+
+String functionEndpoint(const String& functionName) {
+  return normalizeApiBase(config.apiBase) + "/" + functionName;
+}
+
 String chipIdSuffix() {
   uint64_t chipId = ESP.getEfuseMac();
   char buffer[9];
@@ -149,7 +167,7 @@ void loadConfig() {
   config.claimCode = preferences.getString("claim_code", "");
   config.deviceToken = preferences.getString("device_token", "");
   config.sensorId = preferences.getString("sensor_id", "");
-  config.apiBase = preferences.getString("api_base", JORDD_API_BASE);
+  config.apiBase = normalizeApiBase(preferences.getString("api_base", JORDD_API_BASE));
   config.uploadIntervalMinutes = preferences.getUShort("upload_min", kDefaultUploadIntervalMinutes);
   config.deviceUid = chipIdSuffix();
   config.firmwareVersion = "jordd-factory-setup-0.2.0";
@@ -165,11 +183,11 @@ void saveProvisioning(const String& wifiSsid, const String& wifiPassword, const 
   preferences.putString("wifi_ssid", wifiSsid);
   preferences.putString("wifi_pass", wifiPassword);
   preferences.putString("claim_code", claimCode);
-  preferences.putString("api_base", apiBase);
+  preferences.putString("api_base", normalizeApiBase(apiBase));
   config.wifiSsid = wifiSsid;
   config.wifiPassword = wifiPassword;
   config.claimCode = claimCode;
-  config.apiBase = apiBase;
+  config.apiBase = normalizeApiBase(apiBase);
 }
 
 void saveClaimResult(const String& sensorId, const String& deviceToken, uint16_t uploadIntervalMinutes) {
@@ -210,9 +228,9 @@ std::unique_ptr<WiFiClient> createClientForUrl(const String& url) {
 }
 
 bool claimDevice(String* errorMessage = nullptr) {
-  std::unique_ptr<WiFiClient> client = createClientForUrl(config.apiBase);
+  const String endpoint = functionEndpoint("device-claim");
+  std::unique_ptr<WiFiClient> client = createClientForUrl(endpoint);
   HTTPClient http;
-  const String endpoint = config.apiBase + "/api/device/claim";
   if (!http.begin(*client, endpoint)) {
     if (errorMessage) {
       *errorMessage = "Kunne ikke starte claim-request.";
@@ -270,9 +288,9 @@ uint8_t batteryPercentFromMillivolts(uint16_t mv) {
 }
 
 bool uploadHeartbeat(uint16_t batteryMv, uint8_t batteryPct) {
-  std::unique_ptr<WiFiClient> client = createClientForUrl(config.apiBase);
+  const String endpoint = functionEndpoint("device-readings");
+  std::unique_ptr<WiFiClient> client = createClientForUrl(endpoint);
   HTTPClient http;
-  const String endpoint = config.apiBase + "/api/device/readings";
   if (!http.begin(*client, endpoint)) {
     return false;
   }
@@ -322,7 +340,7 @@ void printStoredStatus() {
   Serial.printf("Claim code lagret: %s\n", config.claimCode.isEmpty() ? "nei" : "ja");
   Serial.printf("Claimed: %s\n", hasProvisioning() ? "ja" : "nei");
   Serial.printf("Sensor ID: %s\n", config.sensorId.isEmpty() ? "-" : config.sensorId.c_str());
-  Serial.printf("API-base: %s\n", config.apiBase.c_str());
+  Serial.printf("API-base: %s\n", normalizeApiBase(config.apiBase).c_str());
   Serial.println("Serial-kommandoer de neste sekundene: status, reset, factory-reset");
 }
 
@@ -375,7 +393,7 @@ void handlePortalRoot() {
                "<label>Claim code<input name='claim_code' required></label>"
                "<label>Jordd API<input name='api_base' value='")) +
       config.apiBase +
-      String(F("'></label><button type='submit'>Koble til</button></form>"
+      String(F("'></label><p>Bruk Supabase-prosjektets URL eller en ferdig functions-base.</p><button type='submit'>Koble til</button></form>"
                "<div class='actions' style='margin-top:16px'>"
                "<form method='post' action='/reset'><button class='ghost' type='submit'>Factory reset</button></form>"
                "</div></section>"));
@@ -393,7 +411,6 @@ void handlePortalConfigure() {
   const String wifiPassword = portalServer.arg("wifi_password");
   const String claimCode = portalServer.arg("claim_code");
   String apiBase = portalServer.arg("api_base");
-  apiBase.trim();
   if (apiBase.isEmpty()) {
     apiBase = JORDD_API_BASE;
   }

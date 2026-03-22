@@ -1,0 +1,51 @@
+name: Deploy Supabase
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Push database
+        run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Set function secrets
+        run: supabase secrets set JORDD_INVITE_CODE=testpilot26
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      - name: Deploy functions
+        run: |
+          supabase functions deploy auth-register --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy auth-change-password --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy app-dashboard --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy app-account --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy app-account-update --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy app-claim-codes --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy device-claim --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy device-readings --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}

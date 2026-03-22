@@ -1,0 +1,23 @@
+[functions.auth-register]
+verify_jwt = false
+
+[functions.auth-change-password]
+verify_jwt = false
+
+[functions.app-dashboard]
+verify_jwt = false
+
+[functions.app-account]
+verify_jwt = false
+
+[functions.app-account-update]
+verify_jwt = false
+
+[functions.app-claim-codes]
+verify_jwt = false
+
+[functions.device-claim]
+verify_jwt = false
+
+[functions.device-readings]
+verify_jwt = false

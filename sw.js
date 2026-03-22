@@ -1,7 +1,8 @@
-const CACHE_NAME = "jordd-shell-v6";
+const CACHE_NAME = "jordd-shell-v7";
 const APP_SHELL = [
   "/",
   "/index.html",
+  "/config.js",
   "/styles.css",
   "/app.js",
   "/manifest.webmanifest",
@@ -34,6 +35,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (url.pathname === "/config.js") {
     return;
   }
 

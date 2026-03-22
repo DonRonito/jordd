@@ -1,7 +1,7 @@
 {
   "name": "Jordd",
   "short_name": "Jordd",
-  "description": "En PWA for batteridrevne ESP32-sensorer som kobles direkte til jordd.com.",
+  "description": "En PWA for batteridrevne Jordd-sensorer som kobles direkte til jordd.com.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
